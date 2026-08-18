@@ -91,6 +91,51 @@ export function parseConsultas(raw: string): string[] {
   }
 }
 
+/**
+ * Monta o bloco dos documentos enviados pelo usuário.
+ *
+ * Documento anexado tem autoridade diferente de página da web: foi o próprio
+ * usuário que o forneceu. Por isso o rótulo é distinto ([A1], [A2]) e a
+ * instrução manda tratar como fonte primária — sem deixar de dizer quando o
+ * documento não cobre o que foi perguntado.
+ */
+export function blocoDocumentos(
+  docs: Array<{ nome: string; trechos: Array<{ rotulo: string; texto: string }>; cobertura: number; observacao?: string }>,
+): string {
+  if (!docs.length) return "";
+
+  const partes: string[] = ["# Documentos anexados pelo usuário", ""];
+
+  for (const d of docs) {
+    const pct = Math.round(d.cobertura * 100);
+    partes.push(`## ${d.nome}`);
+    partes.push(
+      pct >= 100
+        ? "_Conteúdo completo abaixo._"
+        : `_Documento extenso: abaixo estão os trechos mais relevantes à pergunta (${pct}% do conteúdo)._`,
+    );
+    if (d.observacao) partes.push(`_${d.observacao}_`);
+    partes.push("");
+
+    for (const t of d.trechos) {
+      partes.push(`### [${t.rotulo}]`);
+      partes.push(t.texto);
+      partes.push("");
+    }
+  }
+
+  partes.push("## Como usar os documentos");
+  partes.push("");
+  partes.push("- Estes arquivos foram fornecidos pelo próprio usuário: são fonte primária e têm precedência sobre memória ou sobre páginas da web, salvo erro evidente.");
+  partes.push("- Ao afirmar algo que veio de um documento, cite o rótulo do trecho, como `[A1]`.");
+  partes.push("- Quando o documento traz um **perfil de planilha**, os números de soma, média, mínimo e máximo foram calculados do arquivo inteiro e são confiáveis. A amostra de linhas é apenas ilustrativa: não conte linhas nem tire totais dela.");
+  partes.push("- Se apenas parte do documento foi incluída e a resposta depender do resto, diga isso com clareza em vez de extrapolar.");
+  partes.push("- Se o documento contradiz o que você sabe, exponha a contradição.");
+  partes.push("");
+
+  return partes.join("\n");
+}
+
 /** Anexa o dossiê a qualquer prompt de fase. */
 export function comDossie(prompt: string, dossie: string): string {
   return dossie ? `${dossie}\n\n---\n\n${prompt}` : prompt;

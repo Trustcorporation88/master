@@ -64,6 +64,7 @@ export const ETAPA_LABEL: Record<Etapa, string> = {
 export type EventoPublico =
   | { type: "etapa"; etapa: Etapa }
   | { type: "fontes"; fontes: FontePublica[] }
+  | { type: "documentos"; documentos: Array<{ nome: string; cobertura: number }> }
   | { type: "aviso"; texto: string }
   | { type: "resposta_delta"; texto: string }
   | { type: "final"; confianca: Confianca; ressalvas: string[] }

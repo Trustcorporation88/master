@@ -48,6 +48,49 @@ erros.length = 0;
 
 await page.screenshot({ path: "/tmp/p2-inicio.png" });
 
+/* ---------------- Documentos ---------------- */
+
+await page.click("text=Documentos");
+await page.waitForTimeout(400);
+
+// Envia planilha, PDF e markdown de uma vez.
+await page.setInputFiles('input[type="file"]', [
+  "/tmp/amostras/vendas.xlsx",
+  "/tmp/amostras/relatorio.pdf",
+  "/tmp/amostras/notas.md",
+]);
+
+await page.waitForSelector("text=/2 abas, 5.001 linhas/", { timeout: 90000 });
+ok(true, "planilha processada com perfil de linhas");
+await page.waitForSelector("text=/5 p[áa]ginas/", { timeout: 60000 });
+ok(true, "PDF processado com contagem de páginas");
+
+const marcados = await page.locator('input[type="checkbox"]:checked').count();
+ok(marcados >= 3, `documentos marcados para uso (${marcados})`);
+await page.screenshot({ path: "/tmp/p6-documentos.png", fullPage: true });
+
+// Recusa de formato
+await page.evaluate(async () => {
+  const r = await fetch("/api/documentos", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ acao: "preparar", nome: "virus.exe", mime: "application/x-msdownload", bytes: 10 }),
+  });
+  window.__fmt = r.status;
+});
+ok((await page.evaluate(() => window.__fmt)) === 415, "formato não aceito é recusado");
+
+// Recusa de tamanho
+await page.evaluate(async () => {
+  const r = await fetch("/api/documentos", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ acao: "preparar", nome: "grande.pdf", mime: "application/pdf", bytes: 200 * 1024 * 1024 }),
+  });
+  window.__tam = r.status;
+});
+ok((await page.evaluate(() => window.__tam)) === 413, "arquivo acima de 100 MB é recusado");
+
 /* ---------------- Análise ---------------- */
 
 await page.fill("textarea", "Qual a capital do Brasil e por que foi construída?");
@@ -168,7 +211,12 @@ await page.waitForTimeout(600);
 await page.screenshot({ path: "/tmp/p5-mobile.png", fullPage: true });
 ok(true, "captura mobile");
 
-console.log(erros.length ? `\n✗ erros de console:\n${erros.join("\n")}` : "\n✓ nenhum erro de console");
+// As sondagens de recusa (415 e 413) produzem erro de rede no console de
+// propósito; não são defeitos.
+const errosReais = erros.filter((e) => !/(415|413)/.test(e));
+console.log(
+  errosReais.length ? `\n✗ erros de console:\n${errosReais.join("\n")}` : "\n✓ nenhum erro de console inesperado",
+);
 console.log(falhas.length ? `\n✗ ${falhas.length} verificação(ões) falharam` : "\n✓ todas as verificações passaram");
 
 await navegador.close();

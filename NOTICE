@@ -40,5 +40,10 @@ Não derivam do Mysti — são originais deste projeto:
     internos em etapas de uso, autenticação por sessão e o isolamento que
     mantém fornecedores, modelos e estratégias fora do navegador.
 
+  - A camada de documentos (lib/storage.ts, lib/extract.ts): upload direto ao
+    armazenamento, perfilamento estatístico de planilhas, extração de PDF e
+    DOCX, e o recorte por relevância que ajusta documentos extensos ao
+    orçamento de leitura dos modelos.
+
 Uma cópia da Apache License 2.0 está disponível em:
 http://www.apache.org/licenses/LICENSE-2.0

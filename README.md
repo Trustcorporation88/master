@@ -2,6 +2,8 @@
 
 Aplicação web em que o usuário faz uma pergunta e recebe **uma** resposta consolidada, com grau de confiança declarado, pontos a verificar e fontes conferíveis.
 
+O usuário também pode anexar documentos — planilhas, PDFs, Word, Markdown — de até 100 MB cada, e perguntar sobre eles.
+
 Por dentro, cada pergunta passa por vários modelos de IA de fornecedores diferentes que respondem de forma independente, criticam as respostas uns dos outros, se corrigem, e têm o resultado julgado por uma rubrica antes de virar resposta única. **Nada disso aparece para quem usa** — a interface entrega o resultado, não o método.
 
 ---
@@ -77,6 +79,19 @@ BUSCA_PROVIDER=brave   # se as duas estiverem definidas
 
 Sem chave de busca o sistema funciona, mas compara apenas o que os modelos memorizaram — sem fontes para citar.
 
+### Armazenamento de documentos (necessário para upload)
+
+```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+O bucket é criado automaticamente na primeira utilização — não há SQL nem migração para rodar. Metadados ficam como JSON no próprio Storage, o que dispensa banco de dados.
+
+Sem essas variáveis o upload continua funcionando, mas grava em disco local do container: serve para desenvolvimento e **se perde a cada deploy**.
+
+A chave `service_role` tem poder total no projeto Supabase. Ela é usada apenas no servidor e nunca chega ao navegador.
+
 Veja `.env.example` para a lista completa.
 
 ---
@@ -138,6 +153,7 @@ app/
   page.tsx                 A interface (cliente)
   login/page.tsx           Tela de login
   api/duel/route.ts        Executa a análise, transmite etapas por SSE
+  api/documentos/route.ts  Upload, leitura e remoção de documentos
   api/login/route.ts       Troca a senha por cookie de sessão
 middleware.ts              Exige sessão em todas as rotas, exceto o login
 lib/
@@ -146,12 +162,16 @@ lib/
   serverConfig.ts          Chaves e modelos vindos do ambiente
   providers.ts             Camada unificada dos fornecedores de IA
   search.ts                Busca web e montagem do dossiê
+  storage.ts               Supabase Storage, com driver de disco para dev
+  extract.ts               Leitura de planilha, PDF, DOCX e texto
   duel/
     engine.ts              Orquestração das fases e consolidação
     prompts.ts             Prompts de cada papel
     convergence.ts         Heurística de convergência
     types.ts               Tipos internos
 components/
+  Analise.tsx              Interface principal (cliente)
+  Documentos.tsx           Painel de documentos e upload direto
   Resposta.tsx             Resposta, confiança, ressalvas, fontes
   Progresso.tsx            Etapas durante o processamento
   Markdown.tsx             Renderização de markdown e código
@@ -185,7 +205,10 @@ O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vaz
 
 ## Limites conhecidos
 
-- **Custo por pergunta.** Uma análise profunda com três fornecedores pode passar de 20 chamadas de API, e o dossiê de fontes entra no prompt de cada parecer — os tokens de entrada se multiplicam. Defina limite de gasto nas chaves no painel de cada fornecedor.
+- **Custo por pergunta.** Uma análise profunda com três fornecedores pode passar de 20 chamadas de API, e o dossiê de fontes e documentos entra no prompt de cada parecer — os tokens de entrada se multiplicam. Defina limite de gasto nas chaves no painel de cada fornecedor.
+- **PDF digitalizado não é lido.** Sem camada de texto, a extração não tem o que ler. O usuário é avisado; reconhecimento de imagem (OCR) não está implementado.
+- **`.xls` antigo não é aceito.** O formato binário legado ficou de fora; salve como `.xlsx` ou `.csv`.
+- **Planilha muito grande é perfilada, não lida linha a linha.** Perguntas que dependem de encontrar uma linha específica entre 200 mil podem não ser respondidas pela amostra.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
 - **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.
 - **Sem busca, ninguém verifica nada.** Sem chave de busca, a análise compara apenas o que os modelos memorizaram.

@@ -29,6 +29,16 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  /**
+   * Bibliotecas de leitura de documento ficam fora do empacotamento.
+   *
+   * O pdfjs carrega o próprio worker por caminho de arquivo; empacotado, o
+   * caminho aponta para um chunk que não existe e a leitura de PDF falha em
+   * produção (funciona em desenvolvimento, o que torna a falha traiçoeira).
+   * exceljs e mammoth entram pelo mesmo motivo: dependem de recursos em disco.
+   */
+  serverExternalPackages: ["pdfjs-dist", "exceljs", "mammoth"],
+
   async headers() {
     return [
       {

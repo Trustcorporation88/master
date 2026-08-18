@@ -1,5 +1,8 @@
 import { runDuel } from "@/lib/duel/engine";
+import { blocoDocumentos } from "@/lib/duel/prompts";
+import { recortarPorRelevancia } from "@/lib/extract";
 import { agentesDoServidor, buscaDoServidor } from "@/lib/serverConfig";
+import { lerExtracao, lerMeta } from "@/lib/storage";
 import type { DuelConfig, Strategy } from "@/lib/duel/types";
 import type { Etapa, EventoPublico, Profundidade } from "@/lib/publicTypes";
 
@@ -15,6 +18,16 @@ export const maxDuration = 800;
  * internos são traduzidos para etapas de produto — o navegador nunca recebe
  * nome de fornecedor, de modelo, de estratégia, nem as respostas parciais.
  */
+
+/**
+ * Orçamento de caracteres para documentos anexados.
+ *
+ * Entra no prompt de CADA parecer, então o custo se multiplica pelo número de
+ * fornecedores. 120 mil caracteres são cerca de 30 mil tokens por parecer — o
+ * suficiente para um relatório inteiro, sem transformar uma pergunta em dezenas
+ * de dólares.
+ */
+const ORCAMENTO_DOCUMENTOS = 120_000;
 
 const ESTRATEGIA: Record<Profundidade, Strategy> = {
   rapida: "quick",
@@ -44,6 +57,10 @@ export async function POST(req: Request) {
       : "equilibrada"
   ) as Profundidade;
 
+  const idsDocumentos = Array.isArray(body.documentos)
+    ? body.documentos.filter((d): d is string => typeof d === "string").slice(0, 10)
+    : [];
+
   const agents = agentesDoServidor();
   if (agents.length < 2) {
     return Response.json(
@@ -52,10 +69,43 @@ export async function POST(req: Request) {
     );
   }
 
+  // Monta o contexto dos documentos antes de começar: se um arquivo não estiver
+  // legível, é melhor avisar agora do que no meio da análise.
+  const docsUsados: Array<{ nome: string; cobertura: number }> = [];
+  let contextoDocumentos: string | undefined;
+
+  if (idsDocumentos.length) {
+    const orcamentoPorDoc = Math.floor(ORCAMENTO_DOCUMENTOS / idsDocumentos.length);
+    const blocos: Parameters<typeof blocoDocumentos>[0] = [];
+    let contador = 0;
+
+    for (const id of idsDocumentos) {
+      const meta = await lerMeta(id);
+      if (!meta || meta.estado !== "pronto") continue;
+
+      const extracao = await lerExtracao(id);
+      if (!extracao?.trim()) continue;
+
+      contador++;
+      const { trechos, cobertura } = recortarPorRelevancia(
+        extracao,
+        query,
+        orcamentoPorDoc,
+        `A${contador}.`,
+      );
+
+      blocos.push({ nome: meta.nome, trechos, cobertura, observacao: meta.aviso });
+      docsUsados.push({ nome: meta.nome, cobertura });
+    }
+
+    if (blocos.length) contextoDocumentos = blocoDocumentos(blocos);
+  }
+
   const config: DuelConfig = {
     query,
     strategy: ESTRATEGIA[profundidade],
     agents,
+    contextoDocumentos,
     busca: buscaDoServidor(),
     judge: "rotate",
     maxRounds: profundidade === "profunda" ? 3 : 2,
@@ -95,6 +145,17 @@ export async function POST(req: Request) {
 
       try {
         etapa("interpretando");
+
+        // Informa de saída quanto de cada documento entrou na análise.
+        if (docsUsados.length) {
+          enviar({
+            type: "documentos",
+            documentos: docsUsados.map((d) => ({
+              nome: d.nome,
+              cobertura: Math.round(d.cobertura * 100),
+            })),
+          });
+        }
 
         for await (const evt of runDuel(config, controller.signal)) {
           switch (evt.type) {

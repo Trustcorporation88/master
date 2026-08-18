@@ -127,8 +127,9 @@ export async function* runDuel(
 
   /* ---------------- Fase 0: levantamento de evidência ---------------- */
 
-  let dossie = "";
-  let temDossie = false;
+  // Documentos do usuário entram como evidência desde a primeira fase.
+  let dossie = config.contextoDocumentos ?? "";
+  let temDossie = Boolean(config.contextoDocumentos);
 
   const transcript: string[] = [];
   const record = (titulo: string, itens: AgentResult[]) => {
@@ -176,7 +177,8 @@ export async function* runDuel(
           );
 
           if (d.fontes.length > 0) {
-            dossie = dossieParaPrompt(d);
+            // Preserva os documentos já presentes e acrescenta as fontes web.
+            dossie = [dossie, dossieParaPrompt(d)].filter(Boolean).join("\n\n---\n\n");
             temDossie = true;
           }
 

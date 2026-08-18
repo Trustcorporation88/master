@@ -58,6 +58,8 @@ export type DuelConfig = {
   strategy: Strategy;
   agents: AgentConfig[];
   busca?: BuscaConfig;
+  /** Bloco pronto com os documentos anexados, montado antes da execução. */
+  contextoDocumentos?: string;
   /** Quem julga no fim. "rotate" escolhe um agente diferente do autor mais forte. */
   judge: ProviderId | "rotate";
   maxRounds: number;
