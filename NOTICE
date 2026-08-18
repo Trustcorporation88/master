@@ -1,0 +1,40 @@
+Duelo de Agentes
+Copyright (c) 2026
+
+Este projeto contém trabalho derivado de:
+
+  Mysti — DeepMyst
+  https://github.com/DeepMyst/Mysti
+  Licenciado sob a Apache License, Version 2.0
+
+Partes adaptadas do Mysti (originalmente em src/managers/BrainstormManager.ts):
+
+  1. As cinco estratégias de colaboração — quick, debate, red-team,
+     perspectives e delphi — e a estrutura de fases de cada uma.
+
+  2. Os prompts de papéis: Crítico × Defensor (debate), Proponente ×
+     Desafiante (red-team), Analista de Risco × Inovador (perspectives) e
+     Facilitador × Refinador (delphi). Traduzidos para português,
+     generalizados para domínios além de código e estendidos de 2 para
+     3 participantes.
+
+  3. A heurística de detecção de convergência (_assessConvergence e
+     _calculateTextSimilarity): razão de concordância, estabilidade de
+     posição, e detecção de estagnação e oscilação. Os padrões de
+     concordância/discordância foram estendidos para o português.
+
+Diferenças arquiteturais em relação ao original: o Mysti é uma extensão do
+VS Code que executa CLIs locais (claude, codex, gemini) como subprocessos e
+interpreta o stdout. Este projeto é uma aplicação web que chama as APIs HTTP
+dos provedores diretamente, com chaves fornecidas pelo próprio usuário.
+
+Não derivam do Mysti — são originais deste projeto:
+
+  - A fase de arbitragem com rubrica de julgamento (lib/duel/prompts.ts,
+    promptArbitro).
+  - A camada de busca web e o dossiê de evidência compartilhado
+    (lib/search.ts), incluindo a fase de levantamento de consultas e o
+    critério de fundamentação na rubrica do árbitro.
+
+Uma cópia da Apache License 2.0 está disponível em:
+http://www.apache.org/licenses/LICENSE-2.0
