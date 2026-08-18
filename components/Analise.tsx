@@ -220,9 +220,11 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
             <h1 className="font-serif text-[27px] font-semibold leading-tight tracking-tight text-tinta sm:text-[32px]">
               O que você precisa saber?
             </h1>
-            <p className="mx-auto mt-3 max-w-lg text-[14.5px] leading-relaxed text-tinta-media">
-              Sua pergunta passa por análise cruzada e revisão antes de virar resposta. O grau de
-              confiança e as fontes vêm sempre declarados.
+            {/* Texto mais largo que o anterior: max-w-2xl equilibra as linhas. */}
+            <p className="mx-auto mt-3 max-w-2xl text-[14.5px] leading-relaxed text-tinta-media">
+              Sua pergunta passa por análise cruzada entre as melhores inteligências artificiais do
+              mundo, Anthropic, OpenAI e DeepSeek, onde é feita uma revisão criteriosa antes de
+              virar uma resposta para você. O grau de confiança e as fontes vêm sempre declarados.
             </p>
           </div>
         )}

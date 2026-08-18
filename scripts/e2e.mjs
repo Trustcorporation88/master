@@ -137,10 +137,15 @@ await page.screenshot({ path: "/tmp/p4-resposta.png", fullPage: true });
 
 /* ---------------- O mecanismo não pode vazar ---------------- */
 
+/**
+ * Termos que não devem aparecer no que o navegador recebe.
+ *
+ * Os nomes dos três fornecedores saíram desta lista por decisão de produto: a
+ * chamada da página os cita de propósito, como sinal de qualidade. O que
+ * continua proibido é o resto do mecanismo — modelos, estratégias, papéis e
+ * vocabulário interno.
+ */
 const PROIBIDO = [
-  "Anthropic",
-  "OpenAI",
-  "DeepSeek",
   "claude",
   "gpt-5",
   "deepseek-chat",
