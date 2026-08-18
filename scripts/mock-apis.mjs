@@ -53,6 +53,26 @@ O ponto central se confirma${comDossie ? " [1]" : ""}, e a data consta na fonte$
 \`\`\``;
   }
 
+  if (/# Da recomendação ao código/.test(prompt)) {
+    // Proposta simulada: altera um arquivo existente e tenta um bloqueado,
+    // para o teste verificar que a trava de segurança funciona.
+    return `Ajuste pequeno e localizado na função de soma.
+
+\`\`\`json
+{
+  "possivel": true,
+  "titulo": "Valida entradas em somar()",
+  "descricao": "Passa a recusar argumentos que nao sao numeros.",
+  "arquivos": [
+    { "caminho": "src/index.js", "conteudo": "export function somar(a, b) {\\n  if (typeof a !== 'number' || typeof b !== 'number') {\\n    throw new TypeError('somar espera numeros');\\n  }\\n  return a + b;\\n}\\n" },
+    { "caminho": ".github/workflows/malicioso.yml", "conteudo": "on: push" }
+  ],
+  "riscos": ["Chamadas existentes que passavam string vao passar a lancar erro."],
+  "faltando": []
+}
+\`\`\``;
+  }
+
   if (/# Levantamento de evidência/.test(prompt)) {
     // Simula o agente decidindo pesquisar; "revise este código" pede NENHUMA.
     if (/revise|revisar|este c[óo]digo|trecho abaixo/i.test(prompt)) return "NENHUMA";
@@ -98,6 +118,92 @@ function sseOpenAI(res, texto) {
   res.write("data: [DONE]\n\n");
   res.end();
 }
+
+/* ---------------- GitHub simulado (porta 4006) ---------------- */
+
+const REPO_ARQUIVOS = {
+  "README.md": "# projeto-teste\n\nExemplo.\n",
+  "src/index.js": "export function somar(a, b) {\n  return a + b;\n}\n",
+};
+
+const escritas = [];
+
+createServer((req, res) => {
+  const url = new URL(req.url, "http://x");
+  const p = url.pathname;
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    const json = (o, code = 200) => {
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(o));
+    };
+
+    // Listagem de repositórios da conta
+    if (p === "/user/repos") {
+      return json([
+        { full_name: "teste/projeto-teste", private: true, default_branch: "main",
+          updated_at: "2026-08-01T00:00:00Z", description: "repo de teste" },
+      ]);
+    }
+    if (p === "/repos/teste/projeto-teste") {
+      return json({ default_branch: "main" });
+    }
+    if (p === "/repos/teste/projeto-teste/branches") {
+      return json([{ name: "main" }]);
+    }
+    if (p === "/repos/teste/projeto-teste/branches/main") {
+      return json({ commit: { sha: "abc1234567890" } });
+    }
+    if (p === "/repos/teste/projeto-teste/git/ref/heads/main") {
+      return json({ object: { sha: "abc1234567890" } });
+    }
+    if (p.startsWith("/repos/teste/projeto-teste/git/trees/")) {
+      return json({
+        truncated: false,
+        tree: Object.keys(REPO_ARQUIVOS).map((path, i) => ({
+          path, type: "blob", sha: `sha${i}`, size: REPO_ARQUIVOS[path].length,
+        })),
+      });
+    }
+    if (p.startsWith("/repos/teste/projeto-teste/git/blobs/")) {
+      const i = Number(p.split("sha")[1]);
+      const conteudo = Object.values(REPO_ARQUIVOS)[i] ?? "";
+      return json({ encoding: "base64", content: Buffer.from(conteudo).toString("base64") });
+    }
+
+    // Workflows: este repositório NÃO tem CI
+    if (p.includes("/contents/.github/workflows")) return json({ message: "Not Found" }, 404);
+
+    // Conteúdo de arquivo (para pegar o sha na atualização)
+    if (p.startsWith("/repos/teste/projeto-teste/contents/") && req.method === "GET") {
+      const caminho = decodeURIComponent(p.split("/contents/")[1]);
+      if (!(caminho in REPO_ARQUIVOS)) return json({ message: "Not Found" }, 404);
+      return json({ sha: "sha-atual", content: Buffer.from(REPO_ARQUIVOS[caminho]).toString("base64") });
+    }
+
+    // Escrita: branch, arquivo e PR
+    if (p === "/repos/teste/projeto-teste/git/refs" && req.method === "POST") {
+      escritas.push({ tipo: "branch", ...JSON.parse(body) });
+      return json({ ref: JSON.parse(body).ref }, 201);
+    }
+    if (p.startsWith("/repos/teste/projeto-teste/contents/") && req.method === "PUT") {
+      const dados = JSON.parse(body);
+      escritas.push({ tipo: "arquivo", caminho: decodeURIComponent(p.split("/contents/")[1]), branch: dados.branch });
+      return json({ content: { path: "ok" } }, 201);
+    }
+    if (p === "/repos/teste/projeto-teste/pulls" && req.method === "POST") {
+      const dados = JSON.parse(body);
+      escritas.push({ tipo: "pr", ...dados });
+      return json({ html_url: "https://github.com/teste/projeto-teste/pull/7", number: 7 }, 201);
+    }
+
+    // Endpoint de inspeção do próprio mock, para o teste conferir o que foi escrito
+    if (p === "/__escritas") return json(escritas);
+
+    json({ message: `sem rota simulada: ${p}` }, 404);
+  });
+}).listen(4006, () => console.log("mock github em :4006"));
 
 /* ---------------- APIs de busca simuladas ---------------- */
 

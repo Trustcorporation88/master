@@ -94,7 +94,10 @@ function permitido(nomeCompleto: string): boolean {
     .includes(nomeCompleto.toLowerCase());
 }
 
-async function api<T>(caminho: string): Promise<T> {
+async function api<T>(
+  caminho: string,
+  opcoes: { metodo?: string; corpo?: unknown } = {},
+): Promise<T> {
   const token = process.env.GITHUB_TOKEN?.trim();
   const base = process.env.GITHUB_BASE_URL?.trim() || API;
 
@@ -105,8 +108,13 @@ async function api<T>(caminho: string): Promise<T> {
     "user-agent": "master-analise",
   };
   if (token) headers.authorization = `Bearer ${token}`;
+  if (opcoes.corpo) headers["content-type"] = "application/json";
 
-  const res = await fetch(`${base}${caminho}`, { headers });
+  const res = await fetch(`${base}${caminho}`, {
+    method: opcoes.metodo ?? "GET",
+    headers,
+    body: opcoes.corpo ? JSON.stringify(opcoes.corpo) : undefined,
+  });
 
   if (!res.ok) {
     const corpo = await res.text().catch(() => "");
@@ -116,7 +124,10 @@ async function api<T>(caminho: string): Promise<T> {
       throw new Error("Limite de requisições do GitHub atingido. Tente em alguns minutos.");
     }
     if (res.status === 403) throw new Error("O token não tem permissão para este repositório.");
-    if (res.status === 404) throw new Error("Repositório ou branch não encontrado.");
+    if (res.status === 404) throw new Error("Repositório, branch ou arquivo não encontrado.");
+    if (res.status === 422) {
+      throw new Error("O GitHub recusou a operação (branch já existe, ou nada mudou).");
+    }
     throw new Error(`GitHub respondeu ${res.status}.`);
   }
 
@@ -300,4 +311,137 @@ export async function montarPacoteRepo(
     arquivosIncluidos: incluidos,
     arquivosTotais: arquivos.length,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Escrita: branch, commit e pull request                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Caminhos que o sistema nunca escreve.
+ *
+ * `.github/workflows` é a trava mais importante: alterar um workflow é
+ * execução de código no CI, com acesso aos segredos do repositório. Uma
+ * proposta gerada por IA jamais deve poder fazer isso sozinha.
+ */
+const CAMINHOS_BLOQUEADOS: Array<{ teste: RegExp; motivo: string }> = [
+  { teste: /^\.github\/workflows\//i, motivo: "workflows de CI executam código com acesso a segredos" },
+  { teste: /(^|\/)\.env($|\.)(?!example)/i, motivo: "arquivos de ambiente guardam credenciais" },
+  { teste: /(^|\/)\.git\//i, motivo: "diretório interno do git" },
+  { teste: /\.\./, motivo: "caminho relativo para fora do repositório" },
+  { teste: /^\//, motivo: "caminho absoluto" },
+];
+
+export const MAX_ARQUIVOS_PR = 10;
+export const MAX_BYTES_ARQUIVO_PR = 100_000;
+
+export function validarCaminho(caminho: string): string | null {
+  const limpo = caminho.trim();
+  if (!limpo) return "caminho vazio";
+  for (const b of CAMINHOS_BLOQUEADOS) {
+    if (b.teste.test(limpo)) return b.motivo;
+  }
+  return null;
+}
+
+/** O repositório tem workflow que roda em pull request? */
+export async function temValidacaoDePr(owner: string, repo: string): Promise<boolean> {
+  try {
+    const itens = await api<Array<{ name: string; path: string }>>(
+      `/repos/${owner}/${repo}/contents/.github/workflows`,
+    );
+
+    for (const item of itens.slice(0, 10)) {
+      const arq = await api<{ content?: string; encoding?: string }>(
+        `/repos/${owner}/${repo}/contents/${item.path}`,
+      );
+      if (arq.encoding !== "base64" || !arq.content) continue;
+      const yaml = Buffer.from(arq.content, "base64").toString("utf-8");
+      // Basta o gatilho de pull_request para haver checagem antes do merge.
+      if (/^\s*(on:.*pull_request|\s+pull_request:)/m.test(yaml)) return true;
+    }
+  } catch {
+    // Sem pasta de workflows, não há validação.
+  }
+  return false;
+}
+
+export type ArquivoProposto = { caminho: string; conteudo: string };
+
+export type ResultadoPr = {
+  url: string;
+  numero: number;
+  branch: string;
+};
+
+/**
+ * Cria uma branch, grava os arquivos e abre um pull request.
+ *
+ * Nunca escreve na branch base: toda alteração chega como PR, revisável e
+ * reversível com um clique.
+ */
+export async function abrirPullRequest(args: {
+  owner: string;
+  repo: string;
+  base: string;
+  titulo: string;
+  descricao: string;
+  arquivos: ArquivoProposto[];
+}): Promise<ResultadoPr> {
+  const { owner, repo, base, titulo, descricao, arquivos } = args;
+
+  if (!arquivos.length) throw new Error("Nenhuma alteração proposta.");
+  if (arquivos.length > MAX_ARQUIVOS_PR) {
+    throw new Error(`A proposta altera ${arquivos.length} arquivos; o limite é ${MAX_ARQUIVOS_PR}.`);
+  }
+
+  for (const a of arquivos) {
+    const problema = validarCaminho(a.caminho);
+    if (problema) throw new Error(`Caminho recusado (${a.caminho}): ${problema}.`);
+    if (Buffer.byteLength(a.conteudo, "utf-8") > MAX_BYTES_ARQUIVO_PR) {
+      throw new Error(`Arquivo grande demais para a proposta: ${a.caminho}.`);
+    }
+  }
+
+  // Ponto de partida: o topo da branch base.
+  const ref = await api<{ object: { sha: string } }>(
+    `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`,
+  );
+  const shaBase = ref.object.sha;
+
+  const branch = `analise/${Date.now().toString(36)}`;
+  await api(`/repos/${owner}/${repo}/git/refs`, {
+    metodo: "POST",
+    corpo: { ref: `refs/heads/${branch}`, sha: shaBase },
+  });
+
+  for (const arq of arquivos) {
+    // Arquivo existente exige o sha da versão anterior; novo, não.
+    let shaAtual: string | undefined;
+    try {
+      const atual = await api<{ sha?: string }>(
+        `/repos/${owner}/${repo}/contents/${arq.caminho}?ref=${encodeURIComponent(base)}`,
+      );
+      shaAtual = atual.sha;
+    } catch {
+      shaAtual = undefined;
+    }
+
+    await api(`/repos/${owner}/${repo}/contents/${arq.caminho}`, {
+      metodo: "PUT",
+      corpo: {
+        message: `${titulo} — ${arq.caminho}`,
+        content: Buffer.from(arq.conteudo, "utf-8").toString("base64"),
+        branch,
+        ...(shaAtual ? { sha: shaAtual } : {}),
+      },
+    });
+  }
+
+  const pr = await api<{ html_url: string; number: number }>(
+    `/repos/${owner}/${repo}/pulls`,
+    { metodo: "POST", corpo: { title: titulo, head: branch, base, body: descricao } },
+  );
+
+  return { url: pr.html_url, numero: pr.number, branch };
 }

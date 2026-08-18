@@ -587,3 +587,74 @@ O bloco JSON é telemetria interna e não será mostrado ao usuário — mas ele
   }`;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Proposta de alteração de código                                     */
+/* ------------------------------------------------------------------ */
+
+export const SYSTEM_PROPOSTA = `Você converte uma recomendação técnica em alterações de código concretas.
+
+Princípios inegociáveis:
+- Você NÃO executou nada. Não compilou, não rodou teste, não abriu o sistema. Escreva sabendo disso, e sinalize o que precisa ser verificado.
+- Prefira a alteração mínima que resolve o problema. Reescrever um arquivo inteiro para mudar três linhas destrói histórico e esconde o que mudou.
+- Se a recomendação for vaga demais para virar código, ou se você não tem o arquivo relevante em mãos, diga que não dá — proposta inventada custa mais caro que proposta nenhuma.
+- Nunca toque em workflows de CI, arquivos de ambiente ou segredos.`;
+
+/**
+ * Pede a proposta como conteúdo COMPLETO de cada arquivo, não como diff.
+ *
+ * Diff gerado por modelo falha ao aplicar o tempo todo: o contexto não bate por
+ * um espaço, uma linha a mais, um número de linha errado. Arquivo inteiro
+ * sempre aplica, e o GitHub calcula o diff sozinho.
+ */
+export function promptProposta(
+  pergunta: string,
+  resposta: string,
+  contextoRepo: string,
+): string {
+  return `# Da recomendação ao código
+
+${contextoRepo}
+
+---
+
+## O que foi pedido
+
+${pergunta}
+
+## A recomendação aprovada
+
+${resposta}
+
+---
+
+## Sua tarefa
+
+Transforme a recomendação em alterações de arquivo prontas para um pull request.
+
+Regras:
+- Devolva o conteúdo **completo e final** de cada arquivo alterado, não um trecho e não um diff.
+- Só inclua arquivos cujo conteúdo atual você tem acima. Se precisar alterar um arquivo que não está no contexto, não invente: liste-o em "faltando".
+- No máximo 10 arquivos.
+- Nada de \`.github/workflows\`, \`.env\` ou qualquer arquivo de credencial.
+- Preserve o estilo do projeto: mesma indentação, mesmas convenções, mesmo idioma dos comentários.
+
+## Saída obrigatória
+
+Escreva um parágrafo curto explicando a mudança e, em seguida, um único bloco JSON:
+
+\`\`\`json
+{
+  "possivel": true,
+  "titulo": "resumo curto, estilo mensagem de commit",
+  "descricao": "o que muda e por quê, em markdown, para o corpo do pull request",
+  "arquivos": [
+    { "caminho": "src/exemplo.ts", "conteudo": "conteúdo COMPLETO do arquivo após a alteração" }
+  ],
+  "riscos": ["o que pode quebrar, e o que precisa ser testado manualmente"],
+  "faltando": ["arquivos que seriam necessários mas não estavam no contexto"]
+}
+\`\`\`
+
+Se não for possível propor código responsável, devolva \`"possivel": false\` com "riscos" explicando o motivo. Recusar é uma resposta legítima e às vezes a correta.`;
+}

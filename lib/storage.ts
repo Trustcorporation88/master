@@ -37,6 +37,9 @@ export type MetaDoc = {
   aviso?: string;
   estado: "aguardando" | "processando" | "pronto" | "erro";
   erro?: string;
+  /** Só em documentos de repositório: usados para abrir pull request depois. */
+  repoBranch?: string;
+  repoCommit?: string;
 };
 
 const BUCKET = process.env.DUELO_BUCKET?.trim() || "documentos";

@@ -109,7 +109,8 @@ await page.click("text=Repositórios do GitHub");
 await page.waitForSelector('input[placeholder="dono/repositorio"]', { timeout: 20000 });
 ok(true, "painel de repositórios abre");
 
-await page.fill('input[placeholder="dono/repositorio"]', "sindresorhus/is-plain-obj");
+const REPO_TESTE = process.env.E2E_REPO ?? "teste/projeto-teste";
+await page.fill('input[placeholder="dono/repositorio"]', REPO_TESTE);
 await page.locator('input[placeholder="dono/repositorio"]').blur();
 await page.waitForTimeout(2500);
 
@@ -117,7 +118,7 @@ await page.click("text=Importar");
 await page.waitForSelector("text=/importado e pronto para uso/", { timeout: 60000 });
 ok(true, "repositório público importado");
 
-await page.waitForSelector("text=/de 15 arquivos/", { timeout: 20000 });
+await page.waitForSelector("text=/de \\d+ arquivos/", { timeout: 20000 });
 ok(true, "documento do repositório listado com contagem de arquivos");
 await page.screenshot({ path: "/tmp/p7-repos.png", fullPage: true });
 
@@ -149,9 +150,37 @@ const checks = {
 };
 for (const [k, v] of Object.entries(checks)) ok(v > 0, `${k} (${v})`);
 
-await page.click("text=ver");
+// Aspas = correspondência exata. Sem elas, "ver" casaria com "remover" e o
+// teste apagaria um documento em vez de expandir as fontes.
+await page.click('text="ver"');
 await page.waitForTimeout(600);
 await page.screenshot({ path: "/tmp/p4-resposta.png", fullPage: true });
+
+/* ---------------- Proposta de código ---------------- */
+
+const temProposta = await page.locator("text=Propor alterações").count();
+if (temProposta > 0) {
+  await page.click("text=Propor alterações");
+  await page.waitForSelector("text=/Abrir pull request/", { timeout: 90000 });
+  ok(true, "proposta de código gerada com pré-visualização");
+
+  ok(
+    (await page.locator("text=/Caminhos bloqueados por segurança/").count()) > 0,
+    "caminho perigoso é bloqueado e informado",
+  );
+  ok(
+    (await page.locator("text=/não foi executado nem testado/").count()) > 0,
+    "aviso de código não testado aparece antes de abrir o PR",
+  );
+  await page.screenshot({ path: "/tmp/p8-proposta.png", fullPage: true });
+
+  await page.click("text=Abrir pull request");
+  await page.waitForSelector("text=/Pull request/", { timeout: 60000 });
+  ok(true, "pull request aberto");
+  await page.screenshot({ path: "/tmp/p9-pr.png", fullPage: true });
+} else {
+  ok(false, "botão de propor alterações não apareceu");
+}
 
 /* ---------------- O mecanismo não pode vazar ---------------- */
 

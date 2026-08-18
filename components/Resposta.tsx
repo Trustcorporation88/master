@@ -21,6 +21,7 @@ export function Resposta({
   ressalvas,
   fontes,
   onCopiar,
+  proposta,
 }: {
   texto: string;
   streaming: boolean;
@@ -28,6 +29,8 @@ export function Resposta({
   ressalvas: string[];
   fontes: FontePublica[];
   onCopiar: () => void;
+  /** Bloco de proposta de código, quando a análise leu um repositório. */
+  proposta?: React.ReactNode;
 }) {
   const [copiado, setCopiado] = useState(false);
 
@@ -92,6 +95,8 @@ export function Resposta({
       )}
 
       {fontes.length > 0 && <Fontes fontes={fontes} />}
+
+      {!streaming && proposta}
     </article>
   );
 }

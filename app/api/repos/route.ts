@@ -80,6 +80,8 @@ export async function POST(req: Request) {
 
     // O nome carrega o commit: reimportar a mesma versão reaproveita o cache.
     const documento = await criarDocumentoTexto(pacote.chave, pacote.texto, {
+      repoBranch: pacote.branch,
+      repoCommit: pacote.commit,
       resumoEstrutura: `${pacote.arquivosIncluidos} de ${pacote.arquivosTotais} arquivos · branch ${pacote.branch}`,
       aviso:
         pacote.arquivosIncluidos < pacote.arquivosTotais

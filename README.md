@@ -165,6 +165,7 @@ app/
   api/duel/route.ts        Executa a análise, transmite etapas por SSE
   api/documentos/route.ts  Upload, leitura e remoção de documentos
   api/repos/route.ts       Lista e importa repositórios do GitHub
+  api/proposta/route.ts    Gera a proposta de código e abre o pull request
   api/login/route.ts       Troca a senha por cookie de sessão
 middleware.ts              Exige sessão em todas as rotas, exceto o login
 lib/
@@ -176,7 +177,7 @@ lib/
   storage.ts               Supabase Storage, com driver de disco para dev
   extract.ts               Leitura de planilha, PDF, DOCX e texto
   ocr.ts                   Renderização de página e transcrição por visão
-  github.ts                Leitura de repositório e montagem do pacote
+  github.ts                Leitura de repositório, montagem do pacote e escrita de PR
   duel/
     engine.ts              Orquestração das fases e consolidação
     prompts.ts             Prompts de cada papel
@@ -186,6 +187,7 @@ components/
   Analise.tsx              Interface principal (cliente)
   Documentos.tsx           Painel de documentos e upload direto
   Repositorios.tsx         Seleção e importação de repositório
+  Proposta.tsx             Pré-visualização e abertura de pull request
   Resposta.tsx             Resposta, confiança, ressalvas, fontes
   Progresso.tsx            Etapas durante o processamento
   Markdown.tsx             Renderização de markdown e código
@@ -223,6 +225,7 @@ O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vaz
 - **Transcrição de digitalizado não é o original.** O reconhecimento é bom, mas não é perfeito: a interface avisa para conferir números e datas críticos na fonte. Páginas acima do teto não são lidas.
 - **`.xls` antigo não é aceito.** O formato binário legado ficou de fora; salve como `.xlsx` ou `.csv`.
 - **Planilha muito grande é perfilada, não lida linha a linha.** Perguntas que dependem de encontrar uma linha específica entre 200 mil podem não ser respondidas pela amostra.
+- **A proposta de código não é testada.** Nenhum dos repositórios inspecionados tinha workflow de validação em pull request — os que têm CI rodam deploy, não teste. Enquanto for assim, a revisão humana é a única barreira.
 - **Repositório grande entra parcial.** No máximo 120 arquivos e 400 mil caracteres por importação, priorizando documentação e código-fonte. A estrutura completa sempre entra, então o modelo sabe o que existe mesmo sem ter lido.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
 - **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.

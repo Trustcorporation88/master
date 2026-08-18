@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Documentos, type Documento } from "@/components/Documentos";
+import { PropostaCodigo } from "@/components/Proposta";
 import { Progresso } from "@/components/Progresso";
 import { Resposta } from "@/components/Resposta";
 import {
@@ -186,6 +187,11 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
 
   const mostrandoResposta = resposta.length > 0;
 
+  // Proposta de código só faz sentido se a análise usou um repositório.
+  const repoUsado = documentos.find(
+    (d) => d.tipo === "repositorio" && selecionados.has(d.id),
+  );
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-20 border-b border-linha bg-papel/90 backdrop-blur-md">
@@ -338,6 +344,15 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
               ressalvas={ressalvas}
               fontes={fontes}
               onCopiar={copiar}
+              proposta={
+                repoUsado && !rodando ? (
+                  <PropostaCodigo
+                    documentoId={repoUsado.id}
+                    pergunta={perguntaFeita}
+                    resposta={resposta}
+                  />
+                ) : undefined
+              }
             />
           </div>
         )}
