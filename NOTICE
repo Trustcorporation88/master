@@ -34,7 +34,11 @@ Não derivam do Mysti — são originais deste projeto:
     promptArbitro).
   - A camada de busca web e o dossiê de evidência compartilhado
     (lib/search.ts), incluindo a fase de levantamento de consultas e o
-    critério de fundamentação na rubrica do árbitro.
+    critério de fundamentação na rubrica.
+
+  - A camada de produto: interface de resposta única, tradução dos eventos
+    internos em etapas de uso, autenticação por sessão e o isolamento que
+    mantém fornecedores, modelos e estratégias fora do navegador.
 
 Uma cópia da Apache License 2.0 está disponível em:
 http://www.apache.org/licenses/LICENSE-2.0

@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Lora, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
+const lora = Lora({ variable: "--font-lora", subsets: ["latin"], display: "swap" });
+const mono = JetBrains_Mono({ variable: "--font-mono-ui", subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Duelo de Agentes — Anthropic × OpenAI × DeepSeek",
-  description:
-    "Três modelos de IA debatem, criticam-se e um árbitro sintetiza a resposta mais correta. Suas chaves de API ficam no seu navegador.",
+  title: "Master — Inteligência Analítica",
+  description: "Análise assistida com verificação de fontes e grau de confiança declarado.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-bg text-fg">{children}</body>
+    <html
+      lang="pt-BR"
+      className={`${inter.variable} ${lora.variable} ${mono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full bg-papel text-tinta">{children}</body>
     </html>
   );
 }

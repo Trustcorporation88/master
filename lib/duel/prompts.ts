@@ -457,7 +457,12 @@ Regras invioláveis:
 - Se você é um dos modelos avaliados, isso não lhe dá vantagem alguma. Autofavorecimento é a falha mais grave que você pode cometer.
 - Consenso não é prova. Se todos os agentes concordam e todos estão errados, seu dever é dizer isso e marcar o vencedor como "nenhum".
 - Se a pergunta exige um dado que nenhum agente tem, a resposta correta é apontar a lacuna, não escolher o palpite mais bem escrito.
-- Retórica boa com conteúdo ruim perde para conteúdo bom mal escrito.`;
+- Retórica boa com conteúdo ruim perde para conteúdo bom mal escrito.
+
+Sobre a forma da resposta final que você escreve:
+- Ela é entregue diretamente ao usuário, que NÃO sabe (e não deve saber) que houve um duelo entre modelos.
+- Nunca escreva "os agentes", "os modelos", "o duelo", "a análise A e B", "segundo o outro agente" ou qualquer referência ao processo interno. Nunca cite fornecedores de IA como origem das ideias.
+- Escreva como um especialista único e seguro, na primeira pessoa quando fizer sentido. A resposta deve parecer o trabalho de um só autor.`;
 
 export function promptArbitro(
   query: string,
@@ -466,52 +471,56 @@ export function promptArbitro(
   dossie: string,
 ): string {
   const finais = respostas
-    .map((r) => `### Resposta final — ${PROVIDERS[r.provider].label} (id: ${r.provider})\n\n${r.content}`)
+    .map((r) => `### Parecer ${r.provider} (id: ${r.provider})\n\n${r.content}`)
     .join("\n\n---\n\n");
 
   const temDossie = Boolean(dossie);
 
-  return `# Veredito
+  return `# Consolidação final
 
-Avalie as respostas abaixo e produza a melhor resposta possível para o usuário.
+Abaixo estão pareceres independentes sobre a mesma pergunta. Avalie-os e escreva a melhor resposta possível para o usuário.
 
 ## Pergunta do usuário
 
 ${query}
 
-${temDossie ? `${dossie}\n\n---\n\n` : ""}## Respostas finais dos agentes
+${temDossie ? `${dossie}\n\n---\n\n` : ""}## Pareceres
 
 ${finais}
 
 ${transcricao ? `## Histórico da discussão (contexto)\n\n${transcricao}\n` : ""}
 
-## Rubrica
+## Como avaliar
 
-Pontue cada agente de 0 a 10 em cada critério:
-- **correcao** — o que é afirmado é verdadeiro? Erros factuais e alucinações derrubam esta nota.
+Julgue cada parecer por:
+- **correcao** — o que é afirmado é verdadeiro? Erros factuais e invenções derrubam a nota.
 - **completude** — cobre o que a pergunta realmente pedia, sem encher linguiça?
-- **raciocinio** — a conclusão decorre dos argumentos? A lógica se sustenta?
-- **riscos** — identificou armadilhas, casos-limite e limites da própria resposta?${
+- **raciocinio** — a conclusão decorre dos argumentos?
+- **riscos** — identificou armadilhas, casos-limite e os limites da própria resposta?${
     temDossie
       ? `
-- **fundamentacao** — as afirmações estão ancoradas no dossiê e corretamente citadas? Confira cada afirmação factual contra os trechos acima. Afirmação apoiada e citada pontua alto; afirmação factual sem respaldo no dossiê, ou citação que não corresponde ao que a fonte diz, pontua baixo. Reconhecer honestamente uma lacuna do dossiê **não** é penalidade — é acerto.`
+- **fundamentacao** — as afirmações estão ancoradas no dossiê e citadas corretamente? Afirmação factual sem respaldo, ou citação que não corresponde à fonte, pontua baixo. Reconhecer uma lacuna honestamente **não** é penalidade.`
       : ""
   }
 
-## Saída obrigatória
+Consenso não é prova: se todos os pareceres concordam e todos estão errados, a resposta correta é dizer isso.
 
-Primeiro, escreva sua análise em texto livre — compare as respostas e justifique as notas.${
+## Formato obrigatório da sua saída
+
+**Primeiro**, escreva a resposta final ao usuário, começando imediatamente — sem preâmbulo, sem título de seção, sem comentar os pareceres. Use markdown (títulos, listas, tabelas, código quando ajudar).
+
+Essa resposta deve ser autossuficiente e escrita como se fosse de um único especialista. NÃO mencione pareceres, agentes, modelos, comparação ou qualquer parte do processo. O usuário quer a resposta, não o método.${
     temDossie
-      ? " Ao encontrar uma afirmação que o dossiê contradiz ou não sustenta, aponte qual agente a fez e o que a fonte realmente diz."
+      ? " Mantenha as citações [n] nas afirmações factuais, para o usuário poder conferir a fonte."
       : ""
   }
 
-Depois, ao final da mensagem, emita **exatamente um** bloco JSON delimitado assim:
+**Depois** da resposta completa, e só então, emita um único bloco JSON exatamente assim:
 
 \`\`\`json
 {
-  "winner": "anthropic | openai | deepseek | empate | nenhum",
   "confidence": "alta | media | baixa",
+  "winner": "anthropic | openai | deepseek | empate | nenhum",
   "scores": [
     {
       "provider": "anthropic",
@@ -519,21 +528,17 @@ Depois, ao final da mensagem, emita **exatamente um** bloco JSON delimitado assi
       "completude": 0,
       "raciocinio": 0,
       "riscos": 0,${temDossie ? `\n      "fundamentacao": 0,` : ""}
-      "comentario": "uma frase sobre o desempenho deste agente"
+      "comentario": "uma frase sobre este parecer"
     }
   ],
-  "resposta": "A MELHOR RESPOSTA FINAL para o usuário, em markdown, completa e autossuficiente. Pode combinar o melhor de cada agente ou corrigir todos eles. Quem ler só este campo deve ter a resposta inteira.${
-    temDossie
-      ? " Mantenha as citações [n] nas afirmações factuais, para o usuário poder conferir."
-      : ""
-  }",
-  "ressalvas": ["pontos em que a resposta final permanece incerta ou depende de verificação"]
+  "ressalvas": ["pontos em que a resposta permanece incerta ou depende de verificação"]
 }
 \`\`\`
 
-Inclua um objeto em "scores" para cada agente avaliado, usando o id exato indicado acima. Use "nenhum" em "winner" quando nenhuma resposta for confiável, e deixe "ressalvas" como lista vazia somente se realmente não houver incerteza relevante.${
+O bloco JSON é telemetria interna e não será mostrado ao usuário — mas ele precisa vir depois da resposta, nunca antes nem no meio. Use "nenhum" em "winner" quando nenhum parecer for confiável, e nesse caso a resposta ao usuário deve declarar a incerteza com clareza. Inclua um objeto em "scores" para cada parecer, usando o id exato indicado acima. Deixe "ressalvas" vazio só se realmente não houver incerteza relevante.${
     temDossie
       ? "\n\nO dossiê não é autoridade final: se todas as fontes forem fracas ou desatualizadas para o que a pergunta pede, diga isso nas ressalvas."
       : ""
   }`;
 }
+

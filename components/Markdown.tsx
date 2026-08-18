@@ -11,7 +11,7 @@ import rehypeHighlight from "rehype-highlight";
  */
 export const Markdown = memo(function Markdown({ children }: { children: string }) {
   return (
-    <div className="md">
+    <div className="prosa">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}

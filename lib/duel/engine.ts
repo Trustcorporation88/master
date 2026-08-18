@@ -453,6 +453,12 @@ export async function* runDuel(
     yield { type: "judge_start", provider: judge.provider };
 
     let raw = "";
+    // Transmite apenas a resposta ao usuário; o bloco JSON de telemetria vem
+    // depois dela e é cortado aqui, no servidor — nunca chega ao navegador.
+    let enviado = 0;
+    let cortado = false;
+    const FENCE = "```json";
+
     try {
       for await (const chunk of streamChat({
         provider: judge.provider,
@@ -470,10 +476,32 @@ export async function* runDuel(
       })) {
         if (chunk.type === "text") {
           raw += chunk.text;
-          yield { type: "judge_delta", text: chunk.text };
+          if (cortado) continue;
+
+          const idx = raw.indexOf(FENCE);
+          if (idx !== -1) {
+            cortado = true;
+            if (idx > enviado) {
+              yield { type: "judge_delta", text: raw.slice(enviado, idx) };
+              enviado = idx;
+            }
+            continue;
+          }
+
+          // Retém a cauda do tamanho da cerca, para não emitir um fence parcial.
+          const seguro = raw.length - FENCE.length;
+          if (seguro > enviado) {
+            yield { type: "judge_delta", text: raw.slice(enviado, seguro) };
+            enviado = seguro;
+          }
         } else {
           bump(judge.provider, chunk.usage);
         }
+      }
+
+      // Sem bloco JSON: o resto do texto ainda é resposta e deve ser entregue.
+      if (!cortado && raw.length > enviado) {
+        yield { type: "judge_delta", text: raw.slice(enviado) };
       }
     } catch (err) {
       yield {
@@ -614,7 +642,8 @@ export function parseVerdict(
         winner: normalizeWinner(j.winner, respostas),
         confidence: ["alta", "media", "baixa"].includes(j.confidence) ? j.confidence : "media",
         scores,
-        resposta: typeof j.resposta === "string" && j.resposta.trim() ? j.resposta : stripJson(raw),
+        // A resposta ao usuário é o texto que precede o bloco JSON.
+        resposta: stripJson(raw) || (typeof j.resposta === "string" ? j.resposta : ""),
         ressalvas: Array.isArray(j.ressalvas) ? j.ressalvas.map(String) : [],
       };
     } catch {
@@ -628,7 +657,8 @@ export function parseVerdict(
     confidence: "baixa",
     scores: [],
     resposta: stripJson(raw),
-    ressalvas: ["O árbitro não devolveu o JSON estruturado; as notas não puderam ser extraídas."],
+    // Texto neutro: esta ressalva é exibida ao usuário final.
+    ressalvas: ["Não foi possível registrar os indicadores internos desta análise."],
   };
 }
 
@@ -641,6 +671,9 @@ function normalizeWinner(w: unknown, respostas: AgentResult[]): Verdict["winner"
   return "nenhum";
 }
 
+/** Devolve só o texto anterior ao bloco JSON de telemetria. */
 function stripJson(raw: string): string {
-  return raw.replace(/```json[\s\S]*?```/gi, "").trim() || raw.trim();
+  const idx = raw.indexOf("```json");
+  const texto = idx === -1 ? raw : raw.slice(0, idx);
+  return texto.trim();
 }

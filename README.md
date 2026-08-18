@@ -1,100 +1,133 @@
-# Duelo de Agentes
+# Master — Inteligência Analítica
 
-Três modelos de IA de fornecedores diferentes — **Anthropic**, **OpenAI** e **DeepSeek** — respondem à mesma pergunta, criticam as respostas uns dos outros, se corrigem, e um árbitro julga tudo com uma rubrica explícita e entrega a resposta final consolidada.
+Aplicação web em que o usuário faz uma pergunta e recebe **uma** resposta consolidada, com grau de confiança declarado, pontos a verificar e fontes conferíveis.
 
-Opcionalmente, o servidor pesquisa a web antes do duelo e entrega o **mesmo dossiê de fontes** aos três — aí o árbitro passa a cobrar citação e a punir afirmação sem respaldo.
-
-Você usa suas próprias chaves de API. Elas ficam apenas no seu navegador.
+Por dentro, cada pergunta passa por vários modelos de IA de fornecedores diferentes que respondem de forma independente, criticam as respostas uns dos outros, se corrigem, e têm o resultado julgado por uma rubrica antes de virar resposta única. **Nada disso aparece para quem usa** — a interface entrega o resultado, não o método.
 
 ---
 
-## Por que isso funciona
+## Como funciona (visão de quem opera)
 
-Modelos de fornecedores diferentes têm treinamentos diferentes, e portanto **pontos cegos diferentes**. Quando um erra, o outro frequentemente percebe. O duelo transforma essa diferença em correção mútua, em vez de você ter que adivinhar qual resposta confiar.
-
-O que o sistema entrega e um chat comum não:
-
-- **Crítica real, não consenso educado.** Os agentes são instruídos a apontar erros factuais e suposições frágeis — e também a admitir quando o outro acertou mais.
-- **Um árbitro com rubrica.** A resposta final não é a mais bem escrita: é a que pontua melhor em correção (peso 40%), completude, raciocínio e tratamento de riscos.
-- **Honestidade sobre incerteza.** Se todos os agentes concordarem e todos estiverem errados, o árbitro é instruído a marcar o resultado como **inconclusivo** em vez de eleger um vencedor. Consenso não é prova.
-- **Fundamentação verificável.** Com busca ligada, cada afirmação factual deve citar `[n]` de uma fonte que você pode abrir e conferir.
-
----
-
-## Começando
-
-Requisitos: Node.js 20+ e pelo menos **duas** chaves de API.
-
-```bash
-npm install
-npm run dev
+```
+pergunta
+   ↓
+[0] levantamento de fontes na web        (opcional, se houver chave de busca)
+   ↓
+[1] pareceres independentes              (um por fornecedor configurado, em paralelo)
+   ↓
+[2] crítica cruzada e refinamento        (varia com a profundidade escolhida)
+   ↓
+[3] consolidação com rubrica             (correção 35%, completude 20%,
+                                          raciocínio 20%, fundamentação 15%,
+                                          riscos 10% — sem fontes, correção 40%)
+   ↓
+resposta única + confiança + ressalvas + fontes
 ```
 
-Abra <http://localhost:3000>. Na primeira visita, o painel de chaves abre sozinho:
+As três opções de profundidade da interface mapeiam para estratégias internas distintas:
 
-1. Cole cada chave. Ao sair do campo, ela é verificada contra o endpoint `/v1/models` do provedor.
-2. Se a chave for válida, a lista de modelos daquela conta é carregada — escolha o que quiser.
-3. Feche o painel, escreva a pergunta e clique em **Iniciar duelo** (ou `Ctrl+Enter`).
+| Interface | Interno | Chamadas de API | Tempo típico |
+|---|---|---|---|
+| **Rápida** | pareceres independentes + consolidação | n + 1 | ~30s |
+| **Equilibrada** | + crítica cruzada e refinamento | 3n + 1 | 1 a 2 min |
+| **Profunda** | + rodadas de convergência medida | até 7n + 1 | 3 a 6 min |
 
-Onde obter as chaves: [Anthropic](https://console.anthropic.com/settings/keys) · [OpenAI](https://platform.openai.com/api-keys) · [DeepSeek](https://platform.deepseek.com/api_keys)
+`n` = número de fornecedores com chave configurada. Duas chaves já bastam; três tornam o julgamento mais robusto.
 
-Com duas chaves já há duelo. Com três, o julgamento fica mais robusto.
+### Por que vários fornecedores
+
+Modelos treinados de formas diferentes têm **pontos cegos diferentes**. Quando um erra, outro frequentemente percebe. O sistema transforma essa diferença em correção mútua — e o consolidador é instruído a marcar a resposta como incerta quando nenhum parecer é confiável, em vez de eleger o mais bem escrito. Consenso não é prova.
+
+### Fontes
+
+Com chave de busca configurada, o servidor pesquisa **uma vez** e entrega o mesmo dossiê a todos os pareceres. Isso mantém a comparação justa (todos veem a mesma evidência) e permite exigir citação `[n]`, que o usuário confere clicando na fonte.
+
+O risco desse desenho: fonte ruim engana todos de forma correlacionada. Por isso os prompts exigem avaliação da qualidade e da data de cada fonte, não apenas leitura.
+
+---
+
+## Configuração
+
+Todas as chaves ficam em **variáveis de ambiente no servidor**. O navegador nunca vê chave nenhuma, e o cliente não pode injetar chaves na API — o servidor ignora qualquer credencial vinda da requisição.
+
+### Obrigatório em produção
+
+```
+DUELO_SENHA=uma-senha-forte
+```
+
+Sem essa variável o site fica **aberto**. Como as chaves são suas, qualquer visitante gastaria o seu saldo. Com ela, há tela de login e cookie de sessão assinado (HMAC, validade de 7 dias, `HttpOnly`, `Secure` em produção).
+
+### Chaves de IA (pelo menos duas)
+
+```
+ANTHROPIC_API_KEY=...
+OPENAI_API_KEY=...
+DEEPSEEK_API_KEY=...
+```
+
+Modelos são opcionais (`ANTHROPIC_MODEL`, `OPENAI_MODEL`, `DEEPSEEK_MODEL`); sem eles, usa-se um padrão de cada fornecedor.
 
 ### Busca web (opcional)
 
-No mesmo painel há uma seção **Busca web**. Cadastre uma chave de [Brave Search](https://api-dashboard.search.brave.com/app/keys) (barata, tem plano gratuito) ou [Tavily](https://app.tavily.com/home) (feita para agentes, devolve conteúdo mais longo). Ao validar, a busca já fica ligada; o checkbox **Usar nos duelos** liga e desliga quando quiser.
+```
+BRAVE_API_KEY=...      # ou TAVILY_API_KEY=...
+BUSCA_PROVIDER=brave   # se as duas estiverem definidas
+```
 
-Sem chave de busca, o site funciona exatamente como antes.
+Sem chave de busca o sistema funciona, mas compara apenas o que os modelos memorizaram — sem fontes para citar.
 
----
-
-## As cinco estratégias
-
-| Estratégia | O que acontece | Chamadas de API | Quando usar |
-|---|---|---|---|
-| **Rápido** | Cada agente responde sozinho, o árbitro julga | n + 1 | Perguntas diretas, quando custo importa |
-| **Debate** | Respostas → crítica cruzada → refinamento → árbitro | 3n + 1 | Decisões com trade-offs |
-| **Red Team** | Cada agente ataca a resposta do colega, depois defende a sua | 3n + 1 | Achar falhas, revisão de segurança |
-| **Perspectivas** | Cada agente usa uma lente: risco, inovação, execução | 2n + 1 | Problemas abertos, escolha de abordagem |
-| **Delphi** | Rodadas de refinamento com facilitador até haver consenso medido | até 7n + 1 | Problemas complexos, quando quer consenso real |
-
-Onde `n` é o número de agentes ativos. **Rápido** com 3 agentes = 4 chamadas; **Delphi** pode passar de 20. O custo estimado aparece no topo em tempo real.
-
-### Convergência
-
-Nas estratégias com rodadas, o sistema mede o quanto os agentes estão convergindo — razão entre sinais de concordância e discordância, mais a estabilidade das posições entre rodadas. Quando há consenso, a discussão encerra antes do limite; quando as posições ficam andando em círculos, o sistema detecta a estagnação e para em vez de queimar tokens.
-
-### Fundamento factual
-
-Com a busca ligada, o duelo ganha uma fase 0:
-
-1. Um agente transforma sua pergunta em 2-5 consultas de busca — e pode concluir **"não há o que pesquisar"**. Revisão de código, matemática e pedidos de criação não gastam busca.
-2. O servidor executa as consultas, deduplica por URL e monta um dossiê de até 12 fontes numeradas, com trecho e data de publicação.
-3. **O mesmo dossiê vai para os três agentes.** Eles devem citar `[n]` ao afirmar fatos, avaliar a qualidade e a data de cada fonte, e declarar quando o dossiê não cobre parte da pergunta.
-4. O árbitro recebe o dossiê e ganha um quinto critério: **fundamentação**. Afirmação apoiada e citada corretamente pontua alto; afirmação factual sem respaldo, ou citação que não corresponde à fonte, pontua baixo. Reconhecer uma lacuna honestamente **não** é penalidade.
-
-Com dossiê, os pesos passam a ser correção 35%, completude 20%, raciocínio 20%, fundamentação 15%, riscos 10%. Sem dossiê, seguem os pesos originais.
-
-**Por que dossiê compartilhado em vez da busca nativa de cada provedor.** Anthropic, OpenAI e DeepSeek expõem busca de formas incompatíveis — a da OpenAI só existe no Responses API, a da DeepSeek só no endpoint Anthropic-compatible. Além do retrabalho, cada agente pesquisaria coisas diferentes e o duelo passaria a medir qualidade de ferramenta de busca em vez de qualidade de raciocínio. Com a mesma evidência para todos, a comparação isola o que interessa.
-
-**O risco que isso cria:** evidência compartilhada significa que uma fonte ruim engana os três de forma correlacionada — exatamente o viés que o duelo existe para evitar. Por isso os prompts pedem avaliação da fonte, não só leitura dela, e o painel de fontes fica sempre acessível para você conferir.
-
-### O árbitro
-
-Por padrão o árbitro é **rotativo**: muda a cada dia, para que o resultado não fique sistematicamente enviesado a favor de um fornecedor. Você pode fixar um árbitro específico. O prompt do árbitro proíbe explicitamente autofavorecimento — mas se você quer o julgamento mais isento possível, fixe como árbitro um modelo que não está competindo.
+Veja `.env.example` para a lista completa.
 
 ---
 
-## Suas chaves
+## Rodar localmente
 
-- Ficam no **localStorage do seu navegador**. Não há banco de dados, não há `.env` com chave, nada é gravado no servidor.
-- A cada duelo, o navegador envia as chaves para o servidor local, que as usa na chamada e as descarta ao responder. Nenhuma chave é registrada em log — verificado.
-- Erros de autenticação são reescritos antes de chegar à tela. Isso importa: a API da OpenAI **devolve a chave enviada dentro da mensagem de erro**, e repassá-la cruamente a exibiria na interface.
-- O botão **Apagar todas as chaves** limpa o localStorage.
+Requisitos: Node.js 20+.
 
-O risco que sobra: chaves em localStorage são acessíveis a JavaScript, então um XSS as alcançaria. Por isso há CSP estrita (`connect-src 'self'` — a página não fala com nenhum domínio externo), `frame-ancestors 'none'` e nenhuma dependência de terceiros carregada em runtime.
+```bash
+npm install
+cp .env.example .env.local   # preencha as chaves
+npm run dev
+```
 
-**Recomendações:** rode localmente ou atrás da trava de senha (`DUELO_SENHA`); não publique numa URL aberta. Defina limite de gasto nas chaves no painel de cada fornecedor.
+Abra <http://localhost:3000>. Sem `DUELO_SENHA` no `.env.local`, o login é dispensado — conveniente para desenvolvimento, nunca para produção.
+
+---
+
+## Publicar
+
+### Railway (recomendado)
+
+Uma análise profunda pode passar de 5 minutos, que é o teto por requisição da Vercel no plano gratuito — a análise seria cortada com erro. O Railway mantém um servidor ligado, sem esse teto.
+
+1. **New Project → Deploy from GitHub repo**. O Next.js é detectado automaticamente (`npm install`, `npm run build`, `npm start`).
+2. Em **Variables**, adicione `DUELO_SENHA` e as chaves de IA (e de busca, se quiser fontes).
+3. Em **Settings → Networking → Custom Domain**, informe o domínio; o Railway devolve um destino CNAME.
+4. No DNS do domínio, crie o **CNAME** apontando para esse destino. O HTTPS é emitido automaticamente.
+
+Não é preciso configurar porta: o Railway injeta `PORT` e o `next start` a respeita.
+
+### Vercel
+
+Funciona para os modos Rápida e Equilibrada. Evite Profunda no plano gratuito (corte em 5 min); o plano Pro vai a 13 min.
+
+---
+
+## O que o navegador recebe
+
+Isto é uma decisão de projeto, verificada por teste automatizado a cada execução do `e2e`:
+
+- **Não recebe** nome de fornecedor, nome de modelo, nome de estratégia, pareceres individuais, notas por fornecedor, custo ou qualquer termo do processo interno — nem na tela, nem no HTML, nem em nenhum arquivo JavaScript carregado.
+- **Recebe** a resposta final (transmitida ao vivo, palavra por palavra), o grau de confiança, as ressalvas, e as fontes com título, link e data.
+
+Como isso é garantido no código:
+
+- `lib/publicTypes.ts` é o único módulo de domínio que componentes de cliente importam. Ele não contém nome de fornecedor nem de estratégia.
+- `lib/providers.ts`, `lib/search.ts`, `lib/serverConfig.ts` e `lib/duel/*` são exclusivos do servidor.
+- A rota de API traduz eventos internos em etapas de produto ("Consultando fontes", "Revisando e confrontando") e descarta os eventos que revelariam o mecanismo.
+- O consolidador é instruído a escrever como autor único, sem citar pareceres ou modelos. Sua saída vem em duas partes: a resposta ao usuário primeiro, depois um bloco JSON de telemetria — que é **cortado no servidor** e nunca chega ao navegador.
+- Erros de provedor são reescritos em mensagens de produto antes de sair; o detalhe técnico fica no log do servidor. Isso também evita um vazamento concreto: a API da OpenAI devolve a chave enviada dentro da mensagem de erro.
 
 ---
 
@@ -102,93 +135,65 @@ O risco que sobra: chaves em localStorage são acessíveis a JavaScript, então 
 
 ```
 app/
-  api/duel/route.ts      Executa o duelo e transmite eventos por SSE
-  api/models/route.ts    Valida a chave e lista modelos da conta
-  api/search/route.ts    Valida a chave de busca
-  page.tsx               A arena
+  page.tsx                 A interface (cliente)
+  login/page.tsx           Tela de login
+  api/duel/route.ts        Executa a análise, transmite etapas por SSE
+  api/login/route.ts       Troca a senha por cookie de sessão
+middleware.ts              Exige sessão em todas as rotas, exceto o login
 lib/
-  providers.ts           Camada unificada: Anthropic + OpenAI + DeepSeek
-  search.ts              Busca web: Brave + Tavily, e a montagem do dossiê
-  pricing.ts             Estimativa de custo
-  export.ts              Exportação em markdown e histórico local
+  publicTypes.ts           Único módulo de domínio visível ao cliente
+  auth.ts                  Sessão por cookie assinado (HMAC)
+  serverConfig.ts          Chaves e modelos vindos do ambiente
+  providers.ts             Camada unificada dos fornecedores de IA
+  search.ts                Busca web e montagem do dossiê
   duel/
-    engine.ts            Orquestração das fases e arbitragem
-    prompts.ts           Prompts de cada papel
-    convergence.ts       Heurística de convergência
-components/              Colunas dos agentes, veredito, fontes, chaves
-middleware.ts            Trava de acesso por senha (DUELO_SENHA)
-.env.example             Variáveis de ambiente disponíveis
+    engine.ts              Orquestração das fases e consolidação
+    prompts.ts             Prompts de cada papel
+    convergence.ts         Heurística de convergência
+    types.ts               Tipos internos
+components/
+  Resposta.tsx             Resposta, confiança, ressalvas, fontes
+  Progresso.tsx            Etapas durante o processamento
+  Markdown.tsx             Renderização de markdown e código
 scripts/
-  mock-apis.mjs          Emula as cinco APIs, para testar sem gastar chave
-  e2e.mjs                Teste de ponta a ponta da interface
-```
-
-### Endpoint customizado
-
-Para usar um proxy, gateway compatível ou ambiente de teste:
-
-```bash
-ANTHROPIC_BASE_URL=http://localhost:4001 \
-OPENAI_BASE_URL=http://localhost:4002 \
-DEEPSEEK_BASE_URL=http://localhost:4003 \
-BRAVE_BASE_URL=http://localhost:4004 \
-TAVILY_BASE_URL=http://localhost:4005 \
-npm run dev
-```
-
-### Testes sem gastar chaves
-
-```bash
-node scripts/mock-apis.mjs &          # emula os 3 modelos (4001-4003) e as 2 buscas (4004-4005)
-# suba o dev server com as *_BASE_URL acima, e então:
-npm i -D playwright && npx playwright install chromium
-node scripts/e2e.mjs                  # exercita a interface inteira
+  mock-apis.mjs            Emula as 5 APIs externas, para testar sem gastar chave
+  e2e.mjs                  Teste de ponta a ponta, incluindo vazamento
 ```
 
 ---
 
-## Publicar num domínio
+## Testar sem gastar chaves
 
-O site pode ir para o ar sem risco para as suas chaves: elas ficam no navegador de cada visitante, nunca no servidor. O risco real é outro — sem trava, quem descobrir a URL usa o seu servidor como ponte para as APIs. Por isso existe a variável `DUELO_SENHA`.
+```bash
+node scripts/mock-apis.mjs &     # modelos em :4001-4003, buscas em :4004-4005
 
-### Trava de acesso
+DUELO_SENHA=teste123 \
+ANTHROPIC_API_KEY=k1 OPENAI_API_KEY=k2 DEEPSEEK_API_KEY=k3 BRAVE_API_KEY=k4 \
+ANTHROPIC_BASE_URL=http://localhost:4001 \
+OPENAI_BASE_URL=http://localhost:4002 \
+DEEPSEEK_BASE_URL=http://localhost:4003 \
+BRAVE_BASE_URL=http://localhost:4004 \
+npm run build && npm start &
 
-Defina `DUELO_SENHA` no ambiente de produção. O site inteiro, **incluindo as rotas de API**, passa a exigir senha (o navegador pede num popup; o usuário pode ser qualquer coisa, só a senha é conferida). Sem essa variável o site fica aberto — aceitável em `localhost`, não em produção.
+npm i -D playwright && npx playwright install chromium
+E2E_SENHA=teste123 node scripts/e2e.mjs
+```
 
-### Railway (recomendado)
-
-Duelos longos são o motivo da escolha: no modo Delphi com três agentes um duelo pode passar de 5 minutos, que é o teto por requisição da Vercel no plano gratuito — o duelo seria cortado com erro 504. O Railway mantém um servidor ligado, sem esse teto.
-
-1. Suba o projeto para um repositório no GitHub (ou use a CLI: `npm i -g @railway/cli`, `railway login`, `railway up` dentro da pasta).
-2. No Railway: **New Project → Deploy from GitHub repo**. Ele detecta Next.js e roda `npm install`, `npm run build` e `npm start` sozinho.
-3. Em **Variables**, adicione `DUELO_SENHA` com a senha que você escolher.
-4. Em **Settings → Networking → Custom Domain**, informe seu domínio. O Railway devolve um destino CNAME.
-5. No DNS do seu domínio, crie um registro **CNAME** apontando o subdomínio para esse destino. O certificado HTTPS é emitido automaticamente em alguns minutos.
-
-Não é preciso configurar porta: o Railway injeta `PORT` e o `next start` a respeita.
-
-### Por que não há banco de dados
-
-Não há nada para guardar no servidor. Chaves, modelos escolhidos e histórico ficam no `localStorage` do navegador; o duelo acontece em memória e é transmitido por SSE. Se um dia quiser contas de usuário separadas em vez de uma senha única, aí sim entra um provedor de autenticação — hoje seria complexidade sem função.
-
-### Vercel
-
-Funciona, com a ressalva do tempo: plano gratuito corta em 5 minutos, Pro vai a 13. Se for esse o caminho, prefira os modos Rápido e Debate e evite Delphi.
+O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vazamento na tela, no HTML e em todo o JavaScript carregado.
 
 ---
 
 ## Limites conhecidos
 
-- **Custos são estimativas.** A tabela de preços em `lib/pricing.ts` é aproximada e envelhece. A fonte da verdade é o billing de cada fornecedor. O custo das buscas aparece separado, porque é cobrado por consulta e não por token.
-- **Busca aumenta o custo de tokens.** O dossiê entra no prompt de **cada** agente, então tokens de entrada são multiplicados pelo número de agentes. Há tetos: 12 fontes, 1.200 caracteres por trecho, ~18.000 caracteres de dossiê.
-- **Sem busca, ninguém verifica nada.** Sem chave de busca, o duelo compara apenas o que os modelos memorizaram. Para perguntas que dependem de dados atuais, o árbitro tende a apontar a lacuna — e é isso mesmo que deve fazer.
-- **Estratégias longas são lentas.** Delphi com 3 agentes pode levar vários minutos. O botão **Interromper** cancela as chamadas em andamento. Em hospedagem com teto de tempo por requisição (Vercel), duelos longos podem ser cortados — veja a seção de publicação.
-- **O árbitro é um LLM.** Ele erra. As notas são um instrumento de comparação, não uma medição objetiva.
+- **Custo por pergunta.** Uma análise profunda com três fornecedores pode passar de 20 chamadas de API, e o dossiê de fontes entra no prompt de cada parecer — os tokens de entrada se multiplicam. Defina limite de gasto nas chaves no painel de cada fornecedor.
+- **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
+- **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.
+- **Sem busca, ninguém verifica nada.** Sem chave de busca, a análise compara apenas o que os modelos memorizaram.
 
 ---
 
 ## Créditos
 
-As cinco estratégias de duelo, os prompts de papéis e a heurística de convergência são adaptados de [DeepMyst/Mysti](https://github.com/DeepMyst/Mysti) (Apache-2.0), um assistente de programação multiagente para VS Code. Veja [NOTICE](./NOTICE) para o detalhamento do que foi derivado e do que é original.
+As estratégias de colaboração entre modelos (crítica cruzada, red team, perspectivas complementares, convergência Delphi), os prompts de papéis e a heurística de detecção de convergência são adaptados de [DeepMyst/Mysti](https://github.com/DeepMyst/Mysti) (Apache-2.0), um assistente de programação multiagente para VS Code. Veja [NOTICE](./NOTICE) para o detalhamento do que é derivado e do que é original.
 
-O Mysti orquestra CLIs locais dentro do editor; este projeto porta a inteligência de orquestração dele para a web, com chamadas diretas de API.
+O Mysti orquestra CLIs locais dentro do editor; este projeto porta a inteligência de orquestração para a web, com chamadas diretas de API e uma camada de produto por cima.

@@ -1,60 +1,38 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { COOKIE, sessaoValida } from "@/lib/auth";
 
 /**
- * Trava de acesso do site inteiro, incluindo as rotas de API.
+ * Protege o site inteiro, exceto a tela de login e a rota que a atende.
  *
- * Publicar o duelo numa URL aberta não expõe as SUAS chaves — elas ficam no
- * navegador de cada visitante. O problema é outro: sem trava, qualquer pessoa
- * que descubra o endereço usa o seu servidor como ponte para as APIs de IA.
- *
- * A senha vem de DUELO_SENHA. Sem essa variável o site fica aberto, o que só
- * faz sentido rodando em localhost.
+ * As chaves de API ficam no servidor, então uma visita não autenticada gastaria
+ * o dinheiro do dono. Sem DUELO_SENHA definida, `sessaoValida` libera tudo —
+ * conveniência para desenvolvimento local, nunca para produção.
  */
 
 export const config = {
-  // Deixa passar apenas assets estáticos — todo o resto exige senha.
   matcher: ["/((?!_next/static|_next/image|favicon\\.ico).*)"],
 };
 
-/** Comparação em tempo constante, para não vazar o tamanho da senha. */
-function iguais(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}
+const LIVRES = ["/login", "/api/login"];
 
-function pedirSenha(): NextResponse {
-  return new NextResponse("Acesso restrito.", {
-    status: 401,
-    headers: {
-      "www-authenticate": 'Basic realm="Duelo de Agentes", charset="UTF-8"',
-      "cache-control": "no-store",
-    },
-  });
-}
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-export function middleware(req: NextRequest) {
-  const senha = process.env.DUELO_SENHA?.trim();
-
-  // Sem senha configurada, não há trava (uso local).
-  if (!senha) return NextResponse.next();
-
-  const header = req.headers.get("authorization") ?? "";
-  if (!header.toLowerCase().startsWith("basic ")) return pedirSenha();
-
-  let decodificado: string;
-  try {
-    decodificado = atob(header.slice(6).trim());
-  } catch {
-    return pedirSenha();
+  if (LIVRES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return NextResponse.next();
   }
 
-  // Aceita qualquer usuário: o que vale é a senha.
-  const fornecida = decodificado.slice(decodificado.indexOf(":") + 1);
-  if (!iguais(fornecida, senha)) return pedirSenha();
+  if (await sessaoValida(req.cookies.get(COOKIE)?.value)) {
+    return NextResponse.next();
+  }
 
-  return NextResponse.next();
+  // Chamadas de API respondem com status; navegação vai para o login.
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
+  }
+
+  const url = req.nextUrl.clone();
+  url.pathname = "/login";
+  url.search = "";
+  return NextResponse.redirect(url);
 }

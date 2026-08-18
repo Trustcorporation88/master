@@ -1,102 +1,82 @@
 import { runDuel } from "@/lib/duel/engine";
-import { PROVIDERS, type ProviderId } from "@/lib/providers";
-import { SEARCH_PROVIDERS, type SearchProviderId } from "@/lib/search";
-import type { AgentConfig, BuscaConfig, DuelConfig, Strategy } from "@/lib/duel/types";
+import { agentesDoServidor, buscaDoServidor } from "@/lib/serverConfig";
+import type { DuelConfig, Strategy } from "@/lib/duel/types";
+import type { Etapa, EventoPublico, Profundidade } from "@/lib/publicTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 800;
 
-const STRATEGIES: Strategy[] = ["quick", "debate", "red-team", "perspectives", "delphi"];
-
 /**
- * Executa o duelo e transmite os eventos por SSE.
+ * Executa a análise e transmite eventos por SSE.
  *
- * As chaves vêm no corpo do POST, são usadas em memória e não são gravadas em
- * lugar algum — nem em log, nem em disco, nem devolvidas ao cliente.
+ * Contrato deliberadamente estreito: o cliente manda a pergunta e a
+ * profundidade, nada mais. As chaves vêm do ambiente do servidor, e os eventos
+ * internos são traduzidos para etapas de produto — o navegador nunca recebe
+ * nome de fornecedor, de modelo, de estratégia, nem as respostas parciais.
  */
+
+const ESTRATEGIA: Record<Profundidade, Strategy> = {
+  rapida: "quick",
+  equilibrada: "debate",
+  profunda: "delphi",
+};
+
 export async function POST(req: Request) {
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Corpo inválido." }, { status: 400 });
+    return Response.json({ error: "Requisição inválida." }, { status: 400 });
   }
 
   const query = typeof body.query === "string" ? body.query.trim() : "";
   if (!query) {
-    return Response.json({ error: "A pergunta não pode estar vazia." }, { status: 400 });
+    return Response.json({ error: "Escreva uma pergunta." }, { status: 400 });
   }
   if (query.length > 24_000) {
-    return Response.json({ error: "Pergunta muito longa (máx. 24.000 caracteres)." }, { status: 400 });
+    return Response.json({ error: "Pergunta muito longa (máximo de 24.000 caracteres)." }, { status: 400 });
   }
 
-  const rawAgents = Array.isArray(body.agents) ? body.agents : [];
-  const agents: AgentConfig[] = rawAgents
-    .map((a) => a as Record<string, unknown>)
-    .filter((a) => typeof a.provider === "string" && a.provider in PROVIDERS)
-    .map((a) => ({
-      provider: a.provider as ProviderId,
-      model: String(a.model ?? "").trim(),
-      apiKey: String(a.apiKey ?? "").trim(),
-      enabled: a.enabled !== false,
-    }))
-    .filter((a) => a.enabled && a.apiKey && a.model);
+  const profundidade = (
+    ["rapida", "equilibrada", "profunda"].includes(String(body.profundidade))
+      ? body.profundidade
+      : "equilibrada"
+  ) as Profundidade;
 
+  const agents = agentesDoServidor();
   if (agents.length < 2) {
     return Response.json(
-      { error: "Configure ao menos 2 agentes com chave e modelo para haver duelo." },
-      { status: 400 },
+      { error: "O serviço não está configurado. Fale com o administrador." },
+      { status: 503 },
     );
   }
 
-  const strategy = STRATEGIES.includes(body.strategy as Strategy)
-    ? (body.strategy as Strategy)
-    : "quick";
-
-  const judgeRaw = String(body.judge ?? "rotate");
-  const judge: DuelConfig["judge"] =
-    judgeRaw in PROVIDERS ? (judgeRaw as ProviderId) : "rotate";
-
-  // Busca é opcional: sem chave válida, o duelo roda exatamente como antes.
-  const rawBusca = (body.busca ?? {}) as Record<string, unknown>;
-  const buscaProvider = String(rawBusca.provider ?? "");
-  const buscaKey = String(rawBusca.apiKey ?? "").trim();
-
-  const busca: BuscaConfig | undefined =
-    rawBusca.ativa === true && buscaKey && buscaProvider in SEARCH_PROVIDERS
-      ? {
-          ativa: true,
-          provider: buscaProvider as SearchProviderId,
-          apiKey: buscaKey,
-        }
-      : undefined;
-
   const config: DuelConfig = {
     query,
-    strategy,
+    strategy: ESTRATEGIA[profundidade],
     agents,
-    busca,
-    judge,
-    maxRounds: Math.min(5, Math.max(1, Number(body.maxRounds) || 3)),
-    autoConverge: body.autoConverge !== false,
+    busca: buscaDoServidor(),
+    judge: "rotate",
+    maxRounds: profundidade === "profunda" ? 3 : 2,
+    autoConverge: true,
   };
 
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
 
   const encoder = new TextEncoder();
+
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
-      const send = (data: unknown) => {
+      const enviar = (evt: EventoPublico) => {
         try {
-          ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(evt)}\n\n`));
         } catch {
           /* cliente desconectou */
         }
       };
 
-      // Mantém a conexão viva em proxies que cortam streams silenciosos.
       const ping = setInterval(() => {
         try {
           ctrl.enqueue(encoder.encode(": ping\n\n"));
@@ -105,15 +85,71 @@ export async function POST(req: Request) {
         }
       }, 15_000);
 
+      let etapaAtual: Etapa | null = null;
+      const etapa = (e: Etapa) => {
+        if (etapaAtual !== e) {
+          etapaAtual = e;
+          enviar({ type: "etapa", etapa: e });
+        }
+      };
+
       try {
+        etapa("interpretando");
+
         for await (const evt of runDuel(config, controller.signal)) {
-          send(evt);
+          switch (evt.type) {
+            case "search_start":
+              etapa("consultando");
+              break;
+
+            case "search_done":
+              // Só o essencial: título, link e data. Trechos ficam no servidor.
+              enviar({
+                type: "fontes",
+                fontes: evt.fontes.map((f) => ({
+                  n: f.n,
+                  titulo: f.titulo,
+                  url: f.url,
+                  data: f.data,
+                })),
+              });
+              break;
+
+            case "phase":
+              // Traduz a fase interna para uma etapa de produto.
+              if (evt.phase === "independente") etapa("analisando");
+              else if (evt.phase === "veredito") etapa("consolidando");
+              else if (evt.phase !== "busca") etapa("revisando");
+              break;
+
+            case "judge_delta":
+              enviar({ type: "resposta_delta", texto: evt.text });
+              break;
+
+            case "verdict":
+              etapa("concluido");
+              enviar({
+                type: "final",
+                confianca: evt.verdict.confidence,
+                ressalvas: evt.verdict.ressalvas,
+              });
+              break;
+
+            case "fatal":
+              enviar({
+                type: "erro",
+                texto: mensagemAmigavel(evt.error),
+              });
+              break;
+
+            // Ignorados de propósito: revelariam o mecanismo ou não interessam
+            // ao usuário (agent_start/delta/done/error, convergence, cost,
+            // judge_start, search_skip, search_error, done).
+          }
         }
       } catch (err) {
-        send({
-          type: "fatal",
-          error: err instanceof Error ? err.message : "erro inesperado no servidor",
-        });
+        console.error("[duelo] falha na execução:", err instanceof Error ? err.message : err);
+        enviar({ type: "erro", texto: "Houve uma falha ao processar a análise. Tente novamente." });
       } finally {
         clearInterval(ping);
         try {
@@ -136,4 +172,28 @@ export async function POST(req: Request) {
       "x-accel-buffering": "no",
     },
   });
+}
+
+/**
+ * Traduz erros técnicos em mensagens de produto.
+ *
+ * Mensagens cruas de provedor citariam fornecedor e modelo — exatamente o que
+ * não deve aparecer. O detalhe fica no log do servidor.
+ */
+function mensagemAmigavel(erro: string): string {
+  const e = erro.toLowerCase();
+
+  if (e.includes("inválida") || e.includes("permissão")) {
+    return "O serviço está com um problema de configuração. Fale com o administrador.";
+  }
+  if (e.includes("saldo") || e.includes("cota")) {
+    return "O serviço atingiu o limite de uso. Fale com o administrador.";
+  }
+  if (e.includes("rate limit") || e.includes("limite de requisições")) {
+    return "Muitas análises ao mesmo tempo. Tente novamente em alguns instantes.";
+  }
+  if (e.includes("falharam")) {
+    return "Não foi possível concluir a análise agora. Tente novamente.";
+  }
+  return "Houve uma falha ao processar a análise. Tente novamente.";
 }

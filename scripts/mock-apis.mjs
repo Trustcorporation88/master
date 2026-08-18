@@ -25,7 +25,7 @@ const NOMES = { 4001: "anthropic", 4002: "openai", 4003: "deepseek" };
 function textoPara(porta, prompt) {
   const quem = NOMES[porta];
 
-  if (/# Veredito/.test(prompt)) {
+  if (/# Consolidação final/.test(prompt)) {
     const comDossie = /# Dossiê de evidência/.test(prompt);
     const scores = ["anthropic", "openai", "deepseek"]
       .filter((p) => prompt.includes(`id: ${p}`))
@@ -33,13 +33,23 @@ function textoPara(porta, prompt) {
         (p) =>
           `{"provider":"${p}","correcao":8,"completude":7,"raciocinio":8,"riscos":6,${
             comDossie ? '"fundamentacao":9,' : ""
-          }"comentario":"Resposta consistente de ${p}."}`,
+          }"comentario":"Parecer consistente."}`,
       )
       .join(",");
-    return `Analisei as três respostas. Todas convergem no essencial; a diferença está no tratamento de casos-limite.
+
+    // Formato novo: a resposta ao usuário primeiro, telemetria depois.
+    return `## Resposta consolidada
+
+Esta é uma resposta simulada para teste, com **markdown** e um trecho de código:
+
+\`\`\`python
+print('ok')
+\`\`\`
+
+O ponto central se confirma${comDossie ? " [1]" : ""}, e a data consta na fonte${comDossie ? " [2]" : ""}.
 
 \`\`\`json
-{"winner":"anthropic","confidence":"alta","scores":[${scores}],"resposta":"## Resposta final\\n\\nA resposta consolidada do duelo, com **markdown** e um trecho de código:\\n\\n\`\`\`python\\nprint('ok')\\n\`\`\`\\n\\nCombina o rigor de um agente com os casos-limite apontados pelo outro.","ressalvas":["Este é um teste com servidor simulado, não uma resposta real."]}
+{"confidence":"alta","winner":"anthropic","scores":[${scores}],"ressalvas":["Este é um teste com servidor simulado, não uma resposta real."]}
 \`\`\``;
   }
 
