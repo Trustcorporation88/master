@@ -1,6 +1,7 @@
 import { extrair, LIMITE_CARACTERES } from "@/lib/extract";
 import {
   baixarParaDisco,
+  driverAtual,
   gravarBytes,
   gravarExtracao,
   gravarMeta,
@@ -27,6 +28,30 @@ const EXTENSOES_ACEITAS = [
 function extensaoAceita(nome: string): boolean {
   const ext = nome.toLowerCase().split(".").pop() ?? "";
   return EXTENSOES_ACEITAS.includes(ext);
+}
+
+/**
+ * Mensagem de falha do armazenamento.
+ *
+ * Antes toda falha virava "não está configurado", o que mandava quem lê para o
+ * lugar errado: com as credenciais certas e um limite de tamanho baixo no
+ * projeto, o problema é de configuração do armazenamento, não de ausência dela.
+ */
+function mensagemArmazenamento(err: unknown): string {
+  if (driverAtual() === "disco") {
+    return "O armazenamento não está configurado. Fale com o administrador.";
+  }
+
+  const detalhe = err instanceof Error ? err.message : "";
+
+  if (/exceeded the maximum allowed size|EntityTooLarge|Payload too large|413/i.test(detalhe)) {
+    return (
+      "O armazenamento está com um limite de tamanho por arquivo menor que o deste envio. " +
+      "Aumente o limite em Storage → Settings, no painel do armazenamento."
+    );
+  }
+
+  return `Falha no armazenamento: ${detalhe || "erro desconhecido"}.`;
 }
 
 /** Lista os documentos guardados. */
@@ -123,10 +148,7 @@ export async function POST(req: Request) {
       return Response.json(destino);
     } catch (err) {
       console.error("[documentos] falha ao preparar:", err);
-      return Response.json(
-        { error: "O armazenamento não está configurado. Fale com o administrador." },
-        { status: 503 },
-      );
+      return Response.json({ error: mensagemArmazenamento(err) }, { status: 503 });
     }
   }
 

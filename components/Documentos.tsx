@@ -304,6 +304,15 @@ function enviarAssinado(
   return (async () => {
     let status = await tentativa("PUT");
     if (status === 405 || status === 400) status = await tentativa("POST");
+    // 413 é o caso comum e tem causa específica: o teto de tamanho configurado
+    // no armazenamento é menor que o arquivo. Dizer só o código manda quem lê
+    // procurar no lugar errado.
+    if (status === 413) {
+      throw new Error(
+        "O arquivo passou do limite de tamanho configurado no armazenamento. " +
+          "É preciso aumentar esse limite, ou enviar um arquivo menor.",
+      );
+    }
     if (status < 200 || status >= 300) {
       throw new Error(`O armazenamento recusou o arquivo (código ${status}).`);
     }

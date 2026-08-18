@@ -68,16 +68,28 @@ function cliente(): SupabaseClient {
 
 let bucketPronto = false;
 
-/** Cria o bucket na primeira utilização, para não exigir setup manual. */
+/**
+ * Cria o bucket na primeira utilização, para não exigir setup manual.
+ *
+ * Sem `fileSizeLimit` de propósito: o teto de tamanho por arquivo é do projeto
+ * (Storage → Settings), e pedir um limite maior que ele faz o Supabase recusar
+ * a criação inteira com 413. Herdar o limite do projeto é o comportamento
+ * correto — o app já valida o tamanho antes de chegar aqui.
+ *
+ * O erro é propagado: falhar em silêncio aqui produzia "bucket não encontrado"
+ * na chamada seguinte, uma mensagem que não aponta para a causa.
+ */
 async function garantirBucket(): Promise<void> {
   if (bucketPronto || driverAtual() === "disco") return;
 
   const { data } = await cliente().storage.getBucket(BUCKET);
   if (!data) {
-    await cliente().storage.createBucket(BUCKET, {
-      public: false,
-      fileSizeLimit: LIMITE_BYTES,
-    });
+    const { error } = await cliente().storage.createBucket(BUCKET, { public: false });
+    // Dois envios simultâneos podem criar o bucket ao mesmo tempo; o segundo
+    // recebe "already exists", que não é falha.
+    if (error && !/exist/i.test(error.message)) {
+      throw new Error(`não foi possível criar o bucket "${BUCKET}": ${error.message}`);
+    }
   }
   bucketPronto = true;
 }
