@@ -36,8 +36,9 @@ const nextConfig: NextConfig = {
    * caminho aponta para um chunk que não existe e a leitura de PDF falha em
    * produção (funciona em desenvolvimento, o que torna a falha traiçoeira).
    * exceljs e mammoth entram pelo mesmo motivo: dependem de recursos em disco.
+   * @napi-rs/canvas é binário nativo e simplesmente não é empacotável.
    */
-  serverExternalPackages: ["pdfjs-dist", "exceljs", "mammoth"],
+  serverExternalPackages: ["pdfjs-dist", "exceljs", "mammoth", "@napi-rs/canvas"],
 
   async headers() {
     return [

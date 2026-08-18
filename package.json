@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.7",
     "@supabase/supabase-js": "^2.112.3",
     "exceljs": "^4.4.0",
     "highlight.js": "^11.12.0",

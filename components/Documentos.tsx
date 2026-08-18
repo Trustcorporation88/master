@@ -25,7 +25,7 @@ export type Documento = {
 const LIMITE_MB = 100;
 
 const ACEITOS =
-  ".xlsx,.xlsm,.csv,.tsv,.pdf,.docx,.md,.markdown,.txt,.json,.log,.yaml,.yml";
+  ".xlsx,.xlsm,.csv,.tsv,.pdf,.docx,.md,.markdown,.txt,.json,.log,.yaml,.yml,.png,.jpg,.jpeg,.webp,.gif";
 
 export function Documentos({
   documentos,
@@ -197,7 +197,7 @@ export function Documentos({
               </button>
             </p>
             <p className="mt-1.5 text-[11px] text-tinta-clara">
-              Planilha, PDF, Word, Markdown, texto, JSON · até {LIMITE_MB} MB cada
+              Planilha, PDF, Word, Markdown, texto, JSON e imagem · até {LIMITE_MB} MB cada
             </p>
           </div>
 

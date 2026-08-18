@@ -18,6 +18,7 @@
 
 import ExcelJS from "exceljs";
 import mammoth from "mammoth";
+import { MAX_PAGINAS_OCR, MIMES_IMAGEM, ocrDisponivel, ocrImagem, ocrPdf } from "./ocr";
 
 /**
  * Converte serial de data do Excel em Date.
@@ -39,7 +40,12 @@ function formatoEhData(numFmt: string | undefined): boolean {
   return /(yy|mm?\/|dd|mmm|hh:)/i.test(limpo) && !/^[#0.,%\s]+$/.test(limpo);
 }
 
-export type TipoDoc = "planilha" | "pdf" | "docx" | "texto" | "desconhecido";
+export type TipoDoc = "planilha" | "pdf" | "docx" | "texto" | "imagem" | "desconhecido";
+
+/** O reconhecimento de imagem está ligado neste ambiente? */
+function ocrAtivo(): boolean {
+  return process.env.OCR_ATIVO !== "false" && ocrDisponivel();
+}
 
 export type Extracao = {
   tipo: TipoDoc;
@@ -63,11 +69,13 @@ export function tipoPorNome(nome: string, mime?: string): TipoDoc {
   if (ext === "pdf") return "pdf";
   if (ext === "docx") return "docx";
   if (["md", "markdown", "txt", "json", "log", "yaml", "yml", "tsv"].includes(ext)) return "texto";
+  if (ext in MIMES_IMAGEM) return "imagem";
 
   if (mime?.includes("spreadsheet") || mime === "text/csv") return "planilha";
   if (mime === "application/pdf") return "pdf";
   if (mime?.includes("wordprocessingml")) return "docx";
   if (mime?.startsWith("text/") || mime === "application/json") return "texto";
+  if (mime?.startsWith("image/")) return "imagem";
 
   return "desconhecido";
 }
@@ -333,15 +341,72 @@ async function extrairPdf(caminho: string): Promise<Extracao> {
 
   // PDF digitalizado é imagem: tem páginas mas quase nenhum texto extraível.
   const semTexto = texto.length < doc.numPages * 40;
+  const estrutura = `${doc.numPages} ${doc.numPages === 1 ? "página" : "páginas"}`;
+
+  if (!semTexto) {
+    return { tipo: "pdf", texto, caracteresOriginais: texto.length, resumoEstrutura: estrutura };
+  }
+
+  // Sem camada de texto: reconhecimento por imagem.
+  if (!ocrAtivo()) {
+    return {
+      tipo: "pdf",
+      texto,
+      caracteresOriginais: texto.length,
+      aviso:
+        "Este PDF é digitalizado (imagem de papel) e o reconhecimento de imagem está desligado neste ambiente. Envie uma versão com texto.",
+      resumoEstrutura: estrutura,
+    };
+  }
+
+  const r = await ocrPdf(caminho);
+
+  const avisos = [
+    `Documento digitalizado: o conteúdo foi lido por reconhecimento de imagem${
+      r.paginasLidas < r.totalPaginas
+        ? `, nas ${r.paginasLidas} primeiras de ${r.totalPaginas} páginas (teto de ${MAX_PAGINAS_OCR})`
+        : ""
+    }. Confira números e datas críticos no original.`,
+  ];
+  if (r.falhas > 0) {
+    avisos.push(`${r.falhas} página(s) não puderam ser lidas.`);
+  }
 
   return {
     tipo: "pdf",
-    texto,
-    caracteresOriginais: texto.length,
-    aviso: semTexto
-      ? "Este PDF parece ser digitalizado (imagem de papel). Quase não há texto extraível, então a análise não conseguirá ler o conteúdo. Envie uma versão com texto, ou solicite reconhecimento de imagem."
-      : undefined,
-    resumoEstrutura: `${doc.numPages} ${doc.numPages === 1 ? "página" : "páginas"}`,
+    texto: r.texto,
+    caracteresOriginais: r.texto.length,
+    aviso: avisos.join(" "),
+    resumoEstrutura: `${estrutura} · ${r.paginasLidas} reconhecida(s) por imagem`,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Imagem                                                              */
+/* ------------------------------------------------------------------ */
+
+async function extrairImagem(caminho: string, nome: string): Promise<Extracao> {
+  if (!ocrAtivo()) {
+    return {
+      tipo: "imagem",
+      texto: "",
+      caracteresOriginais: 0,
+      aviso: "O reconhecimento de imagem está desligado neste ambiente.",
+      resumoEstrutura: "imagem",
+    };
+  }
+
+  const r = await ocrImagem(caminho, nome);
+
+  return {
+    tipo: "imagem",
+    texto: r.texto,
+    caracteresOriginais: r.texto.length,
+    aviso:
+      r.falhas > 0
+        ? "Não foi possível ler o texto desta imagem."
+        : "Imagem lida por reconhecimento de texto. Confira números e datas críticos no original.",
+    resumoEstrutura: "1 imagem reconhecida",
   };
 }
 
@@ -385,12 +450,15 @@ export async function extrair(caminho: string, nome: string, mime?: string): Pro
       return extrairDocx(caminho);
     case "texto":
       return extrairTexto(caminho);
+    case "imagem":
+      return extrairImagem(caminho, nome);
     default:
       return {
         tipo: "desconhecido",
         texto: "",
         caracteresOriginais: 0,
-        aviso: "Formato não suportado para leitura. Aceitos: XLSX, CSV, PDF, DOCX, MD, TXT, JSON.",
+        aviso:
+          "Formato não suportado para leitura. Aceitos: XLSX, CSV, PDF, DOCX, MD, TXT, JSON e imagens (PNG, JPG, WebP).",
         resumoEstrutura: "—",
       };
   }

@@ -186,6 +186,42 @@ for (const porta of [4001, 4002, 4003]) {
     req.on("end", () => {
       const parsed = JSON.parse(body || "{}");
 
+      // Requisição de leitura de imagem: responde sem streaming, como as APIs
+      // reais fazem quando `stream` não é pedido.
+      const temImagem = JSON.stringify(parsed.messages ?? []).includes("base64");
+      if (temImagem || parsed.stream === false || parsed.stream === undefined) {
+        const transcricao = [
+          "NOTA FISCAL DE SERVICO No 4471",
+          "",
+          "Prestador: TrustCorp Servicos Ltda",
+          "CNPJ: 12.345.678/0001-90",
+          "",
+          "| Descricao | Qtd | Valor |",
+          "|---|---|---|",
+          "| Consultoria tecnica | 40 | 8.400,00 |",
+          "| Treinamento equipe | 12 | 3.600,00 |",
+          "",
+          "TOTAL: R$ 12.000,00",
+          "Vencimento: 15/03/2027",
+        ].join("\n");
+
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify(
+            porta === 4001
+              ? {
+                  content: [{ type: "text", text: transcricao }],
+                  usage: { input_tokens: 1500, output_tokens: 180 },
+                }
+              : {
+                  choices: [{ message: { content: transcricao } }],
+                  usage: { prompt_tokens: 1500, completion_tokens: 180 },
+                },
+          ),
+        );
+        return;
+      }
+
       // Modelo com "falha" no nome simula erro de autenticação do provedor.
       if (String(parsed.model ?? "").includes("falha")) {
         res.writeHead(401, { "content-type": "application/json" });

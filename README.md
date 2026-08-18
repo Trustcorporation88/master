@@ -2,7 +2,7 @@
 
 Aplicação web em que o usuário faz uma pergunta e recebe **uma** resposta consolidada, com grau de confiança declarado, pontos a verificar e fontes conferíveis.
 
-O usuário também pode anexar documentos — planilhas, PDFs, Word, Markdown — de até 100 MB cada, e perguntar sobre eles.
+O usuário também pode anexar documentos — planilhas, PDFs, Word, Markdown, **e documentos digitalizados ou fotografados** — de até 100 MB cada, e perguntar sobre eles.
 
 Por dentro, cada pergunta passa por vários modelos de IA de fornecedores diferentes que respondem de forma independente, criticam as respostas uns dos outros, se corrigem, e têm o resultado julgado por uma rubrica antes de virar resposta única. **Nada disso aparece para quem usa** — a interface entrega o resultado, não o método.
 
@@ -164,6 +164,7 @@ lib/
   search.ts                Busca web e montagem do dossiê
   storage.ts               Supabase Storage, com driver de disco para dev
   extract.ts               Leitura de planilha, PDF, DOCX e texto
+  ocr.ts                   Renderização de página e transcrição por visão
   duel/
     engine.ts              Orquestração das fases e consolidação
     prompts.ts             Prompts de cada papel
@@ -206,7 +207,7 @@ O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vaz
 ## Limites conhecidos
 
 - **Custo por pergunta.** Uma análise profunda com três fornecedores pode passar de 20 chamadas de API, e o dossiê de fontes e documentos entra no prompt de cada parecer — os tokens de entrada se multiplicam. Defina limite de gasto nas chaves no painel de cada fornecedor.
-- **PDF digitalizado não é lido.** Sem camada de texto, a extração não tem o que ler. O usuário é avisado; reconhecimento de imagem (OCR) não está implementado.
+- **Transcrição de digitalizado não é o original.** O reconhecimento é bom, mas não é perfeito: a interface avisa para conferir números e datas críticos na fonte. Páginas acima do teto não são lidas.
 - **`.xls` antigo não é aceito.** O formato binário legado ficou de fora; salve como `.xlsx` ou `.csv`.
 - **Planilha muito grande é perfilada, não lida linha a linha.** Perguntas que dependem de encontrar uma linha específica entre 200 mil podem não ser respondidas pela amostra.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.

@@ -45,5 +45,9 @@ Não derivam do Mysti — são originais deste projeto:
     DOCX, e o recorte por relevância que ajusta documentos extensos ao
     orçamento de leitura dos modelos.
 
+  - O reconhecimento de documento digitalizado (lib/ocr.ts), incluindo a
+    renderização de páginas de PDF em imagem e a transcrição por modelo de
+    visão.
+
 Uma cópia da Apache License 2.0 está disponível em:
 http://www.apache.org/licenses/LICENSE-2.0

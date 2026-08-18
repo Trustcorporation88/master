@@ -300,6 +300,108 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<StreamChunk>
   yield { type: "usage", usage };
 }
 
+/* ------------------------------------------------------------------ */
+/* Leitura de imagem (usada no reconhecimento de documento digitalizado) */
+/* ------------------------------------------------------------------ */
+
+export type VisionRequest = {
+  provider: ProviderId;
+  apiKey: string;
+  model: string;
+  system: string;
+  prompt: string;
+  /** Imagens com o tipo real: um JPEG rotulado como PNG é recusado pela API. */
+  imagens: Array<{ dados: Buffer; mime: string }>;
+  maxTokens?: number;
+  signal?: AbortSignal;
+};
+
+/**
+ * Envia imagens e devolve o texto lido.
+ *
+ * Sem streaming de propósito: o resultado é consumido inteiro pelo processo de
+ * extração, não exibido ao usuário palavra por palavra.
+ */
+export async function readImages(req: VisionRequest): Promise<{ text: string; usage: Usage }> {
+  const { provider, apiKey, model, system, prompt, imagens } = req;
+  const baseUrl = baseUrlOf(provider);
+  const isAnthropic = provider === "anthropic";
+
+  const url = isAnthropic ? `${baseUrl}/v1/messages` : `${baseUrl}/v1/chat/completions`;
+
+  const headers: Record<string, string> = isAnthropic
+    ? { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+    : { "content-type": "application/json", authorization: `Bearer ${apiKey}` };
+
+  const body = isAnthropic
+    ? {
+        model,
+        max_tokens: req.maxTokens ?? 8192,
+        system,
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...imagens.map((img) => ({
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: img.mime,
+                  data: img.dados.toString("base64"),
+                },
+              })),
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      }
+    : {
+        model,
+        max_tokens: req.maxTokens ?? 8192,
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: [
+              ...imagens.map((img) => ({
+                type: "image_url",
+                image_url: { url: `data:${img.mime};base64,${img.dados.toString("base64")}` },
+              })),
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: req.signal,
+  });
+
+  if (!res.ok) {
+    const texto = await res.text().catch(() => "");
+    throw new ProviderError(provider, res.status, humanizeError(provider, res.status, texto));
+  }
+
+  const j = await res.json();
+
+  const text = isAnthropic
+    ? ((j.content as Array<{ type: string; text?: string }>) ?? [])
+        .filter((c) => c.type === "text")
+        .map((c) => c.text ?? "")
+        .join("")
+    : (j.choices?.[0]?.message?.content ?? "");
+
+  const u = (isAnthropic ? j.usage : j.usage) ?? {};
+  const usage: Usage = isAnthropic
+    ? { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0 }
+    : { inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0 };
+
+  return { text: String(text), usage };
+}
+
 /** Versão que acumula tudo — usada em fases internas sem streaming na UI. */
 export async function completeChat(req: ChatRequest): Promise<{ text: string; usage: Usage }> {
   let text = "";

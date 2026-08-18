@@ -20,6 +20,8 @@ const EXTENSOES_ACEITAS = [
   "pdf",
   "docx",
   "md", "markdown", "txt", "json", "log", "yaml", "yml",
+  // Imagens: lidas por reconhecimento de texto.
+  "png", "jpg", "jpeg", "webp", "gif",
 ];
 
 function extensaoAceita(nome: string): boolean {
@@ -94,7 +96,7 @@ export async function POST(req: Request) {
       return Response.json(
         {
           error:
-            "Formato não aceito. Envie XLSX, CSV, PDF, DOCX, MD, TXT, JSON, YAML ou LOG.",
+            "Formato não aceito. Envie planilha, PDF, Word, texto, JSON ou imagem (PNG, JPG, WebP).",
         },
         { status: 415 },
       );

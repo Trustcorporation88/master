@@ -58,12 +58,24 @@ await page.setInputFiles('input[type="file"]', [
   "/tmp/amostras/vendas.xlsx",
   "/tmp/amostras/relatorio.pdf",
   "/tmp/amostras/notas.md",
+  "/tmp/amostras/nota-digitalizada.pdf",
+  "/tmp/amostras/nota-foto.jpg",
 ]);
 
 await page.waitForSelector("text=/2 abas, 5.001 linhas/", { timeout: 90000 });
 ok(true, "planilha processada com perfil de linhas");
 await page.waitForSelector("text=/5 p[áa]ginas/", { timeout: 60000 });
 ok(true, "PDF processado com contagem de páginas");
+
+// PDF sem camada de texto deve ser reconhecido por imagem, não recusado.
+await page.waitForSelector("text=/reconhecida\\(s\\) por imagem/", { timeout: 120000 });
+ok(true, "PDF digitalizado lido por reconhecimento de imagem");
+await page.waitForSelector("text=/1 imagem reconhecida/", { timeout: 120000 });
+ok(true, "imagem JPG lida por reconhecimento de texto");
+ok(
+  (await page.locator("text=/Confira n[úu]meros e datas cr[íi]ticos no original/").count()) > 0,
+  "aviso de conferir o original em documento reconhecido",
+);
 
 const marcados = await page.locator('input[type="checkbox"]:checked').count();
 ok(marcados >= 3, `documentos marcados para uso (${marcados})`);
