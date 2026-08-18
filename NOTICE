@@ -49,5 +49,9 @@ Não derivam do Mysti — são originais deste projeto:
     renderização de páginas de PDF em imagem e a transcrição por modelo de
     visão.
 
+  - A leitura de repositórios do GitHub (lib/github.ts): filtragem de
+    arquivos, priorização por tipo, montagem do pacote de contexto e cache
+    por commit.
+
 Uma cópia da Apache License 2.0 está disponível em:
 http://www.apache.org/licenses/LICENSE-2.0

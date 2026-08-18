@@ -220,6 +220,45 @@ export async function removerDocumento(id: string): Promise<void> {
   if (caminhos.length) await cliente().storage.from(BUCKET).remove(caminhos);
 }
 
+/**
+ * Cria um documento a partir de texto já pronto, sem passar por upload.
+ *
+ * Usado pelos pacotes de repositório: o conteúdo é montado no servidor, não
+ * enviado pelo navegador. O `nome` carrega o commit, então reimportar a mesma
+ * versão reaproveita o que já está gravado em vez de bater na API de novo.
+ */
+export async function criarDocumentoTexto(
+  nome: string,
+  texto: string,
+  extras: Partial<MetaDoc> = {},
+): Promise<MetaDoc> {
+  const existente = (await listarDocumentos()).find(
+    (d) => d.nome === nome && d.estado === "pronto",
+  );
+  if (existente) return existente;
+
+  const meta: MetaDoc = {
+    id: randomUUID(),
+    nome,
+    mime: "text/markdown",
+    bytes: Buffer.byteLength(texto, "utf-8"),
+    criadoEm: new Date().toISOString(),
+    estado: "pronto",
+    tipo: "repositorio",
+    caracteres: texto.length,
+    ...extras,
+  };
+
+  if (driverAtual() === "disco") {
+    await mkdir(join(RAIZ_DISCO, meta.id), { recursive: true });
+  }
+
+  await gravarExtracao(meta.id, texto);
+  await gravarMeta(meta);
+
+  return meta;
+}
+
 /* ------------------------------------------------------------------ */
 /* Conteúdo                                                            */
 /* ------------------------------------------------------------------ */

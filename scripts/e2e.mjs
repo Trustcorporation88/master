@@ -103,6 +103,24 @@ await page.evaluate(async () => {
 });
 ok((await page.evaluate(() => window.__tam)) === 413, "arquivo acima de 100 MB é recusado");
 
+/* ---------------- Repositório do GitHub ---------------- */
+
+await page.click("text=Repositórios do GitHub");
+await page.waitForSelector('input[placeholder="dono/repositorio"]', { timeout: 20000 });
+ok(true, "painel de repositórios abre");
+
+await page.fill('input[placeholder="dono/repositorio"]', "sindresorhus/is-plain-obj");
+await page.locator('input[placeholder="dono/repositorio"]').blur();
+await page.waitForTimeout(2500);
+
+await page.click("text=Importar");
+await page.waitForSelector("text=/importado e pronto para uso/", { timeout: 60000 });
+ok(true, "repositório público importado");
+
+await page.waitForSelector("text=/de 15 arquivos/", { timeout: 20000 });
+ok(true, "documento do repositório listado com contagem de arquivos");
+await page.screenshot({ path: "/tmp/p7-repos.png", fullPage: true });
+
 /* ---------------- Análise ---------------- */
 
 await page.fill("textarea", "Qual a capital do Brasil e por que foi construída?");

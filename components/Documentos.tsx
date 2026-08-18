@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { Repositorios } from "./Repositorios";
 
 /**
  * Painel de documentos.
@@ -267,6 +268,8 @@ export function Documentos({
           )}
         </div>
       )}
+
+      <Repositorios onImportado={onMudou} rodando={rodando} />
     </section>
   );
 }
