@@ -31,6 +31,16 @@ function extensaoAceita(nome: string): boolean {
 }
 
 /**
+ * Teto do envio que passa pelo servidor.
+ *
+ * O caminho normal é o navegador enviar direto ao armazenamento, e aí 100 MB
+ * não custam memória nenhuma ao app. Quando esse caminho está bloqueado — rede
+ * corporativa, extensão de navegador — o arquivo vem por aqui, e aí cada byte
+ * ocupa memória do container. 40 MB é o que cabe com folga.
+ */
+const LIMITE_RELAY = 40 * 1024 * 1024;
+
+/**
  * Mensagem de falha do armazenamento.
  *
  * Antes toda falha virava "não está configurado", o que mandava quem lê para o
@@ -89,6 +99,20 @@ export async function POST(req: Request) {
       }
       if (arquivo.size > LIMITE_BYTES) {
         return Response.json({ error: "Arquivo acima de 100 MB." }, { status: 413 });
+      }
+      // Aqui os bytes passam pela memória do container, diferente do envio
+      // direto. Um arquivo muito grande por esta rota derruba o processo, então
+      // o teto é menor — e a mensagem diz o que fazer.
+      if (arquivo.size > LIMITE_RELAY) {
+        return Response.json(
+          {
+            error:
+              "Este arquivo é grande demais para subir pelo servidor. " +
+              "Ele precisa do envio direto, que está bloqueado na sua rede ou navegador. " +
+              "Tente em uma janela anônima, ou em outra conexão.",
+          },
+          { status: 413 },
+        );
       }
 
       const meta = await lerMeta(id);

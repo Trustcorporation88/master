@@ -83,9 +83,7 @@ export function Documentos({
           }
 
           // 2) Enviar os bytes
-          if (destino.modo === "assinado") {
-            await enviarAssinado(destino.url, arquivo, setProgresso);
-          } else {
+          const pelaApi = async () => {
             const form = new FormData();
             form.append("id", destino.id);
             form.append("arquivo", arquivo);
@@ -94,6 +92,22 @@ export function Documentos({
               throw new Error((await env.json().catch(() => ({}))).error ?? "Falha no envio.");
             }
             setProgresso(100);
+          };
+
+          if (destino.modo === "assinado") {
+            try {
+              await enviarAssinado(destino.url, arquivo, setProgresso);
+            } catch (falhaDireta) {
+              // O envio direto ao armazenamento pode estar bloqueado por
+              // extensão de navegador, proxy ou firewall — coisas que não dá
+              // para consertar daqui. Em vez de desistir, o arquivo sobe pelo
+              // próprio servidor, que é mais lento mas passa onde o outro não.
+              console.warn("envio direto falhou, tentando pelo servidor:", falhaDireta);
+              setProgresso(0);
+              await pelaApi();
+            }
+          } else {
+            await pelaApi();
           }
 
           // 3) Ler o conteúdo
