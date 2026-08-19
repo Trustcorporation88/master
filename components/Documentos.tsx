@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Repositorios } from "./Repositorios";
 
 /**
@@ -47,6 +47,21 @@ export function Documentos({
   const [erro, setErro] = useState<string | null>(null);
   const [arrastando, setArrastando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Arrastar e soltar fora da área pontilhada faz o navegador abrir o arquivo
+   * na aba, o que descarta a página e parece que "não aconteceu nada" — pior
+   * ainda no meio de uma análise. Segurar o solto na janela inteira evita isso.
+   */
+  useEffect(() => {
+    const bloquear = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", bloquear);
+    window.addEventListener("drop", bloquear);
+    return () => {
+      window.removeEventListener("dragover", bloquear);
+      window.removeEventListener("drop", bloquear);
+    };
+  }, []);
 
   const enviar = useCallback(
     async (arquivos: FileList | File[]) => {
