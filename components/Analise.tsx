@@ -44,6 +44,7 @@ export function Analise({
   const [turnos, setTurnos] = useState<TurnoPublico[]>([]);
   const [conversas, setConversas] = useState<ConversaResumoPublico[]>(conversasIniciais);
   const [listaAberta, setListaAberta] = useState(false);
+  const [exportarTudo, setExportarTudo] = useState(false);
 
   /* Análise em curso */
   const [rodando, setRodando] = useState(false);
@@ -83,6 +84,7 @@ export function Analise({
       const { conversa } = await res.json();
       setConversaId(conversa.id);
       setTurnos(conversa.turnos ?? []);
+      setExportarTudo(false);
       setResposta("");
       setPerguntaFeita("");
       setConfianca(null);
@@ -99,6 +101,7 @@ export function Analise({
     setListaAberta(false);
     setConversaId(null);
     setTurnos([]);
+    setExportarTudo(false);
     setResposta("");
     setPerguntaFeita("");
     setConfianca(null);
@@ -478,27 +481,51 @@ export function Analise({
 
         <div ref={fimRef} />
 
-        {/* Exportação da conversa inteira */}
-        {conversaId && turnos.length > 0 && !rodando && (
-          <div className="mt-6 flex flex-wrap items-center gap-2 text-[12px]">
-            <span className="text-tinta-clara">
-              Salvar a conversa inteira ({turnos.length}{" "}
-              {turnos.length === 1 ? "pergunta" : "perguntas"}):
-            </span>
-            <a
-              href={`/imprimir/${conversaId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-md border border-linha px-2.5 py-1 text-tinta-media transition hover:border-marca hover:text-marca"
-            >
-              PDF
-            </a>
-            <a
-              href={`/api/exportar?id=${encodeURIComponent(conversaId)}`}
-              className="rounded-md border border-linha px-2.5 py-1 text-tinta-media transition hover:border-marca hover:text-marca"
-            >
-              Excel
-            </a>
+        {/*
+          Exportação da conversa inteira, recolhida de propósito.
+
+          Cada resposta já tem seus próprios botões de PDF e Excel no cabeçalho.
+          Ter aqui um segundo par com o mesmo nome, e mais visível, fez o usuário
+          exportar a conversa completa querendo só a última resposta — e receber
+          de volta o assunto anterior. Agora precisa de um clique deliberado, e o
+          rótulo diz quantas perguntas vão no arquivo.
+        */}
+        {conversaId && turnos.length > 1 && !rodando && (
+          <div className="mt-6 text-[12px]">
+            {!exportarTudo ? (
+              <button
+                onClick={() => setExportarTudo(true)}
+                className="text-tinta-clara underline underline-offset-2 transition hover:text-tinta"
+              >
+                Exportar a conversa inteira, com as {turnos.length} perguntas
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-tinta-clara">
+                  Arquivo com as {turnos.length} perguntas desta conversa:
+                </span>
+                <a
+                  href={`/imprimir/${conversaId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-md border border-linha px-2.5 py-1 text-tinta-media transition hover:border-marca hover:text-marca"
+                >
+                  PDF
+                </a>
+                <a
+                  href={`/api/exportar?id=${encodeURIComponent(conversaId)}`}
+                  className="rounded-md border border-linha px-2.5 py-1 text-tinta-media transition hover:border-marca hover:text-marca"
+                >
+                  Excel
+                </a>
+                <button
+                  onClick={() => setExportarTudo(false)}
+                  className="text-tinta-clara transition hover:text-tinta"
+                >
+                  ocultar
+                </button>
+              </div>
+            )}
           </div>
         )}
 

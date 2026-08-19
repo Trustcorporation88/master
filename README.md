@@ -260,8 +260,10 @@ bloco indivisível — marcá-la assim faz o navegador empurrar uma resposta de 
 páginas para a folha seguinte e deixar a anterior em branco. Indivisível é só o
 que é pequeno por natureza: linha de tabela, bloco de código, citação.
 
-Cada resposta tem seus próprios botões de PDF e Excel, além dos da conversa
-inteira no fim. O parâmetro `?turno=N` recorta uma resposta — sem ele, exportar
+Cada resposta tem seus próprios botões de PDF e Excel no cabeçalho. A exportação
+da conversa inteira existe, mas fica **recolhida** atrás de um link que diz
+quantas perguntas vão no arquivo: com dois pares de botões de mesmo nome na tela,
+o mais visível era clicado por engano e o arquivo vinha com o assunto anterior. O parâmetro `?turno=N` recorta uma resposta — sem ele, exportar
 uma conversa de vários assuntos leva o assunto anterior junto, o que confundiu em
 uso real. No recorte, o título do documento passa a ser a pergunta recortada, e a
 conversa de origem fica citada como referência.

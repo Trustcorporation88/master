@@ -167,6 +167,32 @@ await page.waitForTimeout(400);
 await page.click("text=/Qual a capital do Brasil/");
 await page.waitForTimeout(1000);
 
+/* ---------------- Exportação da conversa inteira ---------------- */
+
+// O par de botões do rodapé fica recolhido: com dois pares de mesmo nome na
+// tela, o mais visível era clicado por engano e trazia o assunto anterior.
+await page.goto(URL, { waitUntil: "networkidle" });
+await page.click("text=/Histórico/");
+await page.waitForTimeout(400);
+await page.click("text=/Qual a capital do Brasil/");
+await page.waitForTimeout(1200);
+
+const antesDeExpandir = await page.evaluate(() => document.body.innerText);
+ok(
+  antesDeExpandir.includes("Exportar a conversa inteira, com as 2 perguntas"),
+  "exportação da conversa inteira começa recolhida, dizendo quantas perguntas",
+);
+
+const paresPdf = await page.locator('a:has-text("PDF")').count();
+ok(paresPdf === 2, `um botão de PDF por resposta, nenhum solto no rodapé (${paresPdf})`);
+
+await page.click("text=/Exportar a conversa inteira/");
+await page.waitForTimeout(300);
+ok(
+  (await page.locator('a:has-text("PDF")').count()) === 3,
+  "ao expandir, aparece o PDF da conversa inteira",
+);
+
 /* ---------------- Nova conversa ---------------- */
 
 await page.click('text="Nova"');
