@@ -165,7 +165,7 @@ app/
   imprimir/[id]/page.tsx   Versão da conversa para imprimir ou salvar em PDF
   api/duel/route.ts        Executa a análise, transmite etapas por SSE, grava o turno
   api/conversas/route.ts   Lista, abre e remove conversas gravadas
-  api/exportar/route.ts    Exporta a conversa em planilha (.xlsx)
+  api/exportar/route.ts    Exporta a conversa, ou um turno, em planilha (.xlsx)
   api/documentos/route.ts  Upload, leitura e remoção de documentos
   api/repos/route.ts       Lista e importa repositórios do GitHub
   api/proposta/route.ts    Gera a proposta de código e abre o pull request
@@ -260,6 +260,12 @@ bloco indivisível — marcá-la assim faz o navegador empurrar uma resposta de 
 páginas para a folha seguinte e deixar a anterior em branco. Indivisível é só o
 que é pequeno por natureza: linha de tabela, bloco de código, citação.
 
+Cada resposta tem seus próprios botões de PDF e Excel, além dos da conversa
+inteira no fim. O parâmetro `?turno=N` recorta uma resposta — sem ele, exportar
+uma conversa de vários assuntos leva o assunto anterior junto, o que confundiu em
+uso real. No recorte, o título do documento passa a ser a pergunta recortada, e a
+conversa de origem fica citada como referência.
+
 `scripts/pdf-check.mjs` gera o PDF pelo motor do navegador e **mede** cada
 folha: quanto da altura foi aproveitada e se a faixa de 8 mm nas laterais ficou
 livre. Foi o que pegou as duas falhas acima, que passaram por revisão visual na
@@ -275,6 +281,7 @@ tela.
 - **Planilha muito grande é perfilada, não lida linha a linha.** Perguntas que dependem de encontrar uma linha específica entre 200 mil podem não ser respondidas pela amostra.
 - **A proposta de código não é testada.** Nenhum dos repositórios inspecionados tinha workflow de validação em pull request — os que têm CI rodam deploy, não teste. Enquanto for assim, a revisão humana é a única barreira.
 - **Repositório grande entra parcial.** No máximo 120 arquivos e 400 mil caracteres por importação, priorizando documentação e código-fonte. A estrutura completa sempre entra, então o modelo sabe o que existe mesmo sem ter lido.
+- **Requisição longa e calada é cortada pela borda da rede.** Com o domínio atrás de CDN, uma resposta que demora mais de ~100 segundos sem enviar byte nenhum é substituída por uma página de erro em HTML. É por isso que a análise transmite por SSE e a proposta de código também: o fluxo com sinal de vida a cada 10 segundos é o que mantém a conexão de pé. Endpoint novo que possa demorar precisa do mesmo tratamento.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
 - **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.
 - **O histórico não é infinito.** A partir do sétimo turno, os mais antigos saem do contexto. Uma conversa muito longa perde o começo — vale abrir conversa nova quando o assunto mudar.

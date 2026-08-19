@@ -116,6 +116,33 @@ ok(planilha.status === 200, `planilha responde 200 (${planilha.status})`);
 ok(/spreadsheetml/.test(planilha.tipo ?? ""), `tipo de planilha correto (${planilha.tipo})`);
 ok(planilha.bytes > 3000, `planilha tem conteúdo (${planilha.bytes} bytes)`);
 
+// Recorte por turno: exportar a conversa inteira quando se quer uma resposta só
+// entrega junto o assunto anterior. Aconteceu em uso real.
+const soUmTurno = await page.evaluate(async (i) => {
+  const r = await fetch(`/api/exportar?id=${i}&turno=2`);
+  const b = await r.blob();
+  const inexistente = await fetch(`/api/exportar?id=${i}&turno=9`);
+  return { status: r.status, bytes: b.size, forade: inexistente.status };
+}, id);
+ok(soUmTurno.status === 200, `planilha de um turno responde 200 (${soUmTurno.status})`);
+ok(soUmTurno.bytes > 3000, `planilha de um turno tem conteúdo (${soUmTurno.bytes} bytes)`);
+ok(soUmTurno.forade === 404, `turno inexistente é recusado (${soUmTurno.forade})`);
+
+// Lê o texto renderizado, não o HTML cru: o React separa "Pergunta" e o número
+// em nós diferentes, e a busca no HTML dava falso negativo.
+await page.goto(`${URL}/imprimir/${id}?turno=2`, { waitUntil: "networkidle" });
+const visto = await page.evaluate(() => document.body.innerText);
+ok(visto.includes("habitantes"), "impressão de um turno traz a resposta pedida");
+// Contar os blocos é o teste honesto: a linha de referência cita a conversa de
+// origem de propósito, então procurar o texto da pergunta anterior dá falso
+// positivo.
+// Cada resposta impressa declara seu grau de confiança uma vez, então contar
+// essa marca conta respostas — sem casar com a linha de referência do recorte.
+const respostasNaFolha = (visto.match(/Confian[çc]a (alta|m[ée]dia|baixa)/gi) ?? []).length;
+ok(respostasNaFolha === 1, `impressão de um turno traz uma resposta só (${respostasNaFolha})`);
+ok(visto.includes("Pergunta 2"), "impressão de um turno mantém a numeração original");
+ok(visto.includes("de 2 da conversa"), "impressão de um turno diz de onde foi recortada");
+
 const impressao = await page.evaluate(async (i) => {
   const r = await fetch(`/imprimir/${i}`);
   const t = await r.text();
@@ -160,7 +187,11 @@ const html = await (await fetch(`${URL}/`, {
 const vazando = PROIBIDO.filter((t) => contem(html, t));
 ok(vazando.length === 0, `nada do mecanismo no HTML${vazando.length ? `: ${vazando}` : ""}`);
 
-console.log(erros.length ? `\n✗ erros de console:\n${erros.join("\n")}` : "\n✓ nenhum erro de console");
+// A sondagem de turno inexistente devolve 404 de propósito; não é defeito.
+const errosReais = erros.filter((e) => !/404/.test(e));
+console.log(
+  errosReais.length ? `\n✗ erros de console:\n${errosReais.join("\n")}` : "\n✓ nenhum erro de console",
+);
 console.log(falhas.length ? `\n✗ ${falhas.length} verificação(ões) falharam` : "\n✓ todas passaram");
 
 await navegador.close();

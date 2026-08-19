@@ -18,11 +18,25 @@ export const maxDuration = 120;
  * no servidor daria um documento pior, com tabela de markdown achatada.
  */
 export async function GET(req: Request) {
-  const id = new URL(req.url).searchParams.get("id");
+  const params = new URL(req.url).searchParams;
+  const id = params.get("id");
   if (!id) return Response.json({ error: "Informe a conversa." }, { status: 400 });
 
   const conversa = await lerConversa(id);
   if (!conversa) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
+
+  // `turno` recorta uma resposta só. Exportar a conversa inteira quando a pessoa
+  // queria a última resposta entrega junto o assunto anterior — foi exatamente
+  // isso que aconteceu em uso real.
+  const pedido = params.get("turno");
+  const turnos = recortarTurno(conversa.turnos, pedido);
+  if (!turnos.length) {
+    return Response.json({ error: "Resposta não encontrada nesta conversa." }, { status: 404 });
+  }
+
+  // Ao exportar só a terceira resposta, ela continua sendo a terceira: renumerar
+  // a partir de 1 esconderia de onde o recorte veio.
+  const primeiro = pedido ? Number(pedido) : 1;
 
   try {
     const ExcelJS = (await import("exceljs")).default;
@@ -44,9 +58,9 @@ export async function GET(req: Request) {
     ];
     analise.getRow(1).font = { bold: true };
 
-    conversa.turnos.forEach((t, i) => {
+    turnos.forEach((t, i) => {
       const linha = analise.addRow({
-        n: i + 1,
+        n: primeiro + i,
         data: new Date(t.criadoEm).toLocaleString("pt-BR"),
         pergunta: t.pergunta,
         resposta: t.resposta,
@@ -68,10 +82,10 @@ export async function GET(req: Request) {
     ];
     fontes.getRow(1).font = { bold: true };
 
-    conversa.turnos.forEach((t, i) => {
+    turnos.forEach((t, i) => {
       for (const f of t.fontes) {
         fontes.addRow({
-          turno: i + 1,
+          turno: primeiro + i,
           n: `[${f.n}]`,
           titulo: f.titulo,
           url: f.url,
@@ -93,6 +107,18 @@ export async function GET(req: Request) {
     console.error("[exportar] falha ao gerar planilha:", err);
     return Response.json({ error: "Não foi possível gerar a planilha." }, { status: 500 });
   }
+}
+
+/**
+ * Recorta um turno, quando pedido.
+ *
+ * O número é o que a interface mostra ("Pergunta 3"), então é 1 em diante.
+ */
+function recortarTurno<T>(turnos: T[], bruto: string | null): T[] {
+  if (!bruto) return turnos;
+  const n = Number(bruto);
+  if (!Number.isInteger(n) || n < 1 || n > turnos.length) return [];
+  return [turnos[n - 1]];
 }
 
 /** Nome de arquivo seguro para cabeçalho HTTP e para Windows. */

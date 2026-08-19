@@ -15,10 +15,32 @@ export const dynamic = "force-dynamic";
  * e o resultado sai com a mesma tipografia do site. Um PDF montado à mão
  * achataria as tabelas das análises, que é justamente onde está o conteúdo.
  */
-export default async function Imprimir({ params }: { params: Promise<{ id: string }> }) {
+export default async function Imprimir({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ turno?: string }>;
+}) {
   const { id } = await params;
+  const { turno } = await searchParams;
   const conversa = await lerConversa(id);
   if (!conversa) notFound();
+
+  // Uma resposta só, quando pedido: exportar a conversa inteira leva junto o
+  // assunto anterior, que raramente é o que se quer imprimir.
+  const numero = Number(turno);
+  const umTurno =
+    Number.isInteger(numero) && numero >= 1 && numero <= conversa.turnos.length;
+  const recorte = umTurno
+    ? { inicio: numero - 1, turnos: [conversa.turnos[numero - 1]] }
+    : { inicio: 0, turnos: conversa.turnos };
+  if (!recorte.turnos.length) notFound();
+
+  // O título da conversa é a primeira pergunta. Num recorte de uma resposta só,
+  // isso anuncia o assunto errado: o documento vira a pergunta recortada, e a
+  // conversa de origem fica como referência.
+  const titulo = umTurno ? recorte.turnos[0].pergunta : conversa.titulo;
 
   const data = new Date(conversa.atualizadoEm).toLocaleString("pt-BR");
 
@@ -32,16 +54,22 @@ export default async function Imprimir({ params }: { params: Promise<{ id: strin
           <span className="text-[11px] text-tinta-clara">{data}</span>
         </div>
         <h1 className="mt-3 font-serif text-[22px] font-semibold leading-snug tracking-tight">
-          {conversa.titulo}
+          {titulo}
         </h1>
+        {umTurno && (
+          <p className="mt-2 text-[11px] text-tinta-clara">
+            Pergunta {numero} de {conversa.turnos.length} da conversa &ldquo;{conversa.titulo}
+            &rdquo;.
+          </p>
+        )}
       </header>
 
-      {conversa.turnos.map((t, i) => (
+      {recorte.turnos.map((t, i) => (
         <article key={i} className="mb-10">
           {/* A pergunta e o começo da resposta não devem se separar. */}
           <div className="break-inside-avoid">
             <h2 className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-tinta-clara">
-              Pergunta {i + 1}
+              Pergunta {recorte.inicio + i + 1}
             </h2>
             <p className="mb-5 border-l-2 border-linha-forte pl-3 font-serif text-[15px] leading-relaxed">
               {t.pergunta}

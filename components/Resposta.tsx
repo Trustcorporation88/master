@@ -21,6 +21,7 @@ export function Resposta({
   ressalvas,
   fontes,
   onCopiar,
+  exportar,
   proposta,
 }: {
   texto: string;
@@ -29,6 +30,8 @@ export function Resposta({
   ressalvas: string[];
   fontes: FontePublica[];
   onCopiar: () => void;
+  /** Links de exportação desta resposta. Ausente enquanto ela é escrita. */
+  exportar?: { pdf: string; excel: string };
   /** Bloco de proposta de código, quando a análise leu um repositório. */
   proposta?: React.ReactNode;
 }) {
@@ -61,6 +64,26 @@ export function Resposta({
             >
               {conf.label}
             </span>
+          )}
+          {!streaming && exportar && (
+            <>
+              <a
+                href={exportar.pdf}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Salvar esta resposta em PDF"
+                className="rounded-md border border-linha px-2.5 py-1 text-[12px] text-tinta-media transition hover:border-marca hover:text-marca"
+              >
+                PDF
+              </a>
+              <a
+                href={exportar.excel}
+                title="Baixar esta resposta em planilha"
+                className="rounded-md border border-linha px-2.5 py-1 text-[12px] text-tinta-media transition hover:border-marca hover:text-marca"
+              >
+                Excel
+              </a>
+            </>
           )}
           {!streaming && texto && (
             <button

@@ -16,6 +16,72 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 800;
 
+/**
+ * Resposta em fluxo, com sinal de vida.
+ *
+ * Escrever o código e abrir o pull request levam mais de 100 segundos com
+ * frequência, e uma requisição que fica calada esse tempo é cortada pela borda
+ * da rede (o Cloudflare devolve uma página HTML de erro, que o cliente tenta
+ * ler como JSON e falha com "Unexpected token '<'").
+ *
+ * A análise nunca sofreu disso porque transmite texto continuamente. Aqui não há
+ * o que transmitir no meio, então vão comentários de SSE a cada 10 segundos —
+ * bytes que mantêm a conexão viva sem afetar o conteúdo. O resultado real vai no
+ * último quadro.
+ */
+function fluxoComPing(
+  trabalho: () => Promise<{ status: number; corpo: unknown }>,
+  rotulo: string,
+): Response {
+  const enc = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(ctrl) {
+      const escrever = (texto: string) => {
+        try {
+          ctrl.enqueue(enc.encode(texto));
+        } catch {
+          /* cliente desconectou */
+        }
+      };
+
+      // O primeiro byte sai imediatamente: é ele que impede o corte por
+      // demora até a primeira resposta.
+      escrever(": inicio\n\n");
+      const ping = setInterval(() => escrever(": ping\n\n"), 10_000);
+
+      try {
+        const { status, corpo } = await trabalho();
+        escrever(`data: ${JSON.stringify({ status, corpo })}\n\n`);
+      } catch (err) {
+        console.error(`[proposta] falha em ${rotulo}:`, err);
+        escrever(
+          `data: ${JSON.stringify({
+            status: 500,
+            corpo: { error: "Falha inesperada ao preparar a proposta." },
+          })}\n\n`,
+        );
+      } finally {
+        clearInterval(ping);
+        try {
+          ctrl.close();
+        } catch {
+          /* já fechado */
+        }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    },
+  });
+}
+
 type Proposta = {
   possivel: boolean;
   titulo: string;
@@ -113,7 +179,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "Serviço não configurado." }, { status: 503 });
     }
 
-    try {
+    return fluxoComPing(async () => {
       const { text } = await completeChat({
         provider: agente.provider,
         apiKey: agente.apiKey,
@@ -125,10 +191,10 @@ export async function POST(req: Request) {
 
       const proposta = lerProposta(text);
       if (!proposta) {
-        return Response.json(
-          { error: "Não foi possível montar uma proposta a partir desta análise." },
-          { status: 422 },
-        );
+        return {
+          status: 422,
+          corpo: { error: "Não foi possível montar uma proposta a partir desta análise." },
+        };
       }
 
       // Recusa caminhos perigosos antes mesmo de mostrar ao usuário.
@@ -140,17 +206,17 @@ export async function POST(req: Request) {
         (a) => !recusados.some((r) => r.caminho === a.caminho),
       );
 
-      return Response.json({
-        proposta: { ...proposta, arquivos, possivel: proposta.possivel && arquivos.length > 0 },
-        recusados,
-        repo: `${alvo.owner}/${alvo.repo}`,
-        base: alvo.branch,
-        temValidacaoDePr: await temValidacaoDePr(alvo.owner, alvo.repo),
-      });
-    } catch (err) {
-      console.error("[proposta] falha ao gerar:", err);
-      return Response.json({ error: "Falha ao preparar a proposta." }, { status: 502 });
-    }
+      return {
+        status: 200,
+        corpo: {
+          proposta: { ...proposta, arquivos, possivel: proposta.possivel && arquivos.length > 0 },
+          recusados,
+          repo: `${alvo.owner}/${alvo.repo}`,
+          base: alvo.branch,
+          temValidacaoDePr: await temValidacaoDePr(alvo.owner, alvo.repo),
+        },
+      };
+    }, "gerar");
   }
 
   /* ---------------- Abrir o pull request ---------------- */
@@ -177,24 +243,30 @@ export async function POST(req: Request) {
       .filter(Boolean)
       .join("\n");
 
-    try {
-      const resultado = await abrirPullRequest({
-        owner: alvo.owner,
-        repo: alvo.repo,
-        base: alvo.branch,
-        titulo: p.titulo,
-        descricao: `${p.descricao}\n${rodape}`,
-        arquivos: p.arquivos,
-      });
+    return fluxoComPing(async () => {
+      try {
+        const resultado = await abrirPullRequest({
+          owner: alvo.owner,
+          repo: alvo.repo,
+          base: alvo.branch,
+          titulo: p.titulo,
+          descricao: `${p.descricao}\n${rodape}`,
+          arquivos: p.arquivos,
+        });
 
-      return Response.json({ pr: resultado });
-    } catch (err) {
-      console.error("[proposta] falha ao abrir PR:", err);
-      return Response.json(
-        { error: err instanceof Error ? err.message : "Não foi possível abrir o pull request." },
-        { status: 502 },
-      );
-    }
+        return { status: 200, corpo: { pr: resultado } };
+      } catch (err) {
+        // O motivo vindo do GitHub é útil ao usuário (permissão, branch
+        // existente), então sobe em vez de virar mensagem genérica.
+        console.error("[proposta] falha ao abrir PR:", err);
+        return {
+          status: 502,
+          corpo: {
+            error: err instanceof Error ? err.message : "Não foi possível abrir o pull request.",
+          },
+        };
+      }
+    }, "aplicar");
   }
 
   return Response.json({ error: "Ação desconhecida." }, { status: 400 });

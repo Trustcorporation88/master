@@ -21,6 +21,60 @@ type Proposta = {
   faltando: string[];
 };
 
+/**
+ * Envia o pedido e espera o resultado, aceitando resposta em fluxo.
+ *
+ * O servidor responde por SSE nas ações longas: comentários de sinal de vida
+ * enquanto trabalha, e o resultado no último quadro. Sem isso, a requisição fica
+ * calada por minutos e é cortada pela borda da rede — o cliente recebia a página
+ * de erro em HTML e falhava ao ler como JSON.
+ *
+ * Continua aceitando JSON direto, que é como as validações rápidas respondem.
+ */
+async function pedir(corpo: unknown): Promise<{ status: number; dados: Record<string, unknown> }> {
+  const res = await fetch("/api/proposta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+
+  const tipo = res.headers.get("content-type") ?? "";
+
+  if (!tipo.includes("text/event-stream")) {
+    const dados = await res.json().catch(() => ({}));
+    return { status: res.status, dados };
+  }
+
+  if (!res.body) throw new Error("Resposta vazia do servidor.");
+
+  const leitor = res.body.getReader();
+  const decodificador = new TextDecoder();
+  let buffer = "";
+  let ultimo: { status: number; corpo: Record<string, unknown> } | null = null;
+
+  while (true) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    buffer += decodificador.decode(value, { stream: true });
+
+    let corte: number;
+    while ((corte = buffer.indexOf("\n\n")) !== -1) {
+      const quadro = buffer.slice(0, corte);
+      buffer = buffer.slice(corte + 2);
+      const linha = quadro.split("\n").find((l) => l.startsWith("data:"));
+      if (!linha) continue; // comentário de sinal de vida
+      try {
+        ultimo = JSON.parse(linha.slice(5).trim());
+      } catch {
+        /* quadro parcial */
+      }
+    }
+  }
+
+  if (!ultimo) throw new Error("A conexão terminou antes do resultado.");
+  return { status: ultimo.status, dados: ultimo.corpo };
+}
+
 export function PropostaCodigo({
   documentoId,
   pergunta,
@@ -47,13 +101,18 @@ export function PropostaCodigo({
     setPr(null);
 
     try {
-      const res = await fetch("/api/proposta", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ acao: "gerar", documentoId, pergunta, resposta }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Não foi possível preparar a proposta.");
+      const { status, dados } = await pedir({ acao: "gerar", documentoId, pergunta, resposta });
+      if (status < 200 || status >= 300) {
+        throw new Error(String(dados.error ?? "Não foi possível preparar a proposta."));
+      }
+
+      const data = dados as {
+        proposta: Proposta;
+        repo?: string;
+        base?: string;
+        temValidacaoDePr?: boolean;
+        recusados?: Array<{ caminho: string; motivo: string }>;
+      };
 
       setProposta(data.proposta);
       setRepo(data.repo ?? "");
@@ -73,15 +132,12 @@ export function PropostaCodigo({
     setErro(null);
 
     try {
-      const res = await fetch("/api/proposta", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ acao: "aplicar", documentoId, proposta }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Não foi possível abrir o pull request.");
+      const { status, dados } = await pedir({ acao: "aplicar", documentoId, proposta });
+      if (status < 200 || status >= 300) {
+        throw new Error(String(dados.error ?? "Não foi possível abrir o pull request."));
+      }
 
-      setPr(data.pr);
+      setPr(dados.pr as { url: string; numero: number; branch: string });
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao abrir o pull request.");
     } finally {

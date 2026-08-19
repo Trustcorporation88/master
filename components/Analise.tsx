@@ -405,6 +405,14 @@ export function Analise({
                 ressalvas={t.ressalvas}
                 fontes={t.fontes}
                 onCopiar={() => navigator.clipboard?.writeText(t.resposta)}
+                exportar={
+                  conversaId
+                    ? {
+                        pdf: `/imprimir/${conversaId}?turno=${i + 1}`,
+                        excel: `/api/exportar?id=${encodeURIComponent(conversaId)}&turno=${i + 1}`,
+                      }
+                    : undefined
+                }
                 proposta={
                   repoUsado && t === ultimo ? (
                     <PropostaCodigo
@@ -473,7 +481,10 @@ export function Analise({
         {/* Exportação da conversa inteira */}
         {conversaId && turnos.length > 0 && !rodando && (
           <div className="mt-6 flex flex-wrap items-center gap-2 text-[12px]">
-            <span className="text-tinta-clara">Salvar esta conversa:</span>
+            <span className="text-tinta-clara">
+              Salvar a conversa inteira ({turnos.length}{" "}
+              {turnos.length === 1 ? "pergunta" : "perguntas"}):
+            </span>
             <a
               href={`/imprimir/${conversaId}`}
               target="_blank"
