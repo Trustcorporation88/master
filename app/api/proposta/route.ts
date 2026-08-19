@@ -19,12 +19,17 @@ export const maxDuration = 800;
 /**
  * Teto de tempo para escrever o código.
  *
- * Sem isto, uma chamada que travou no provedor deixava o botão em
+ * Existe porque uma chamada travada no provedor deixava o botão em
  * "Preparando..." indefinidamente: o sinal de vida mantinha a conexão aberta
- * para sempre, e quem esperava não tinha como saber se havia falhado. Melhor
- * desistir com mensagem clara do que esperar sem fim.
+ * para sempre, e quem esperava não tinha como saber se havia falhado.
+ *
+ * Oito minutos, não quatro. O trabalho aqui é reescrever arquivos inteiros —
+ * um arquivo de 750 linhas são cerca de 8 mil tokens de saída, somados a 50 mil
+ * de entrada para ler o repositório. Medido em uso real, quatro minutos
+ * interrompia trabalho que ia terminar. O teto do Railway é 15 minutos, então
+ * ainda há folga.
  */
-const TETO_GERACAO_MS = 4 * 60 * 1000;
+const TETO_GERACAO_MS = 8 * 60 * 1000;
 
 /**
  * Resposta em fluxo, com sinal de vida.
@@ -211,8 +216,9 @@ export async function POST(req: Request) {
           status: abortou ? 504 : 502,
           corpo: {
             error: abortou
-              ? "A geração do código passou de 4 minutos e foi interrompida. " +
-                "Tente com uma pergunta mais específica sobre um arquivo, em vez do repositório inteiro."
+              ? "A geração do código passou de 8 minutos e foi interrompida. " +
+                "Isso costuma significar arquivo grande demais para reescrever de uma vez: " +
+                "peça a alteração de um arquivo específico, em vez do repositório inteiro."
               : "Falha ao preparar a proposta.",
           },
         };
