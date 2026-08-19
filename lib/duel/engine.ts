@@ -663,8 +663,12 @@ export function parseVerdict(
     confidence: "baixa",
     scores: [],
     resposta: stripJson(raw),
-    // Texto neutro: esta ressalva é exibida ao usuário final.
-    ressalvas: ["Não foi possível registrar os indicadores internos desta análise."],
+    // Exibida ao usuário final: precisa dizer a consequência para ele, não o
+    // detalhe interno. O que ele perde é a aferição da confiança, e a resposta
+    // em si continua válida — por isso o texto trata do grau, não do mecanismo.
+    ressalvas: [
+      "O grau de confiança desta resposta não pôde ser aferido. O texto foi produzido normalmente, mas leia com atenção redobrada e confira os pontos decisivos.",
+    ],
   };
 }
 

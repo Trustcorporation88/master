@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Proposta de alteração no repositório.
@@ -93,9 +93,25 @@ export function PropostaCodigo({
   const [recusados, setRecusados] = useState<Array<{ caminho: string; motivo: string }>>([]);
   const [pr, setPr] = useState<{ url: string; numero: number; branch: string } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [segundos, setSegundos] = useState(0);
   const [verArquivo, setVerArquivo] = useState<string | null>(null);
 
+  /**
+   * Conta o tempo enquanto trabalha.
+   *
+   * Escrever o código leva minutos, e um botão que só diz "Preparando..." não
+   * distingue lento de travado. O relógio andando é a prova de vida.
+   */
+  useEffect(() => {
+    if (!gerando && !aplicando) return;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [gerando, aplicando]);
+
+  const relogio = `${Math.floor(segundos / 60)}:${String(segundos % 60).padStart(2, "0")}`;
+
   const gerar = useCallback(async () => {
+    setSegundos(0);
     setGerando(true);
     setErro(null);
     setPr(null);
@@ -128,6 +144,7 @@ export function PropostaCodigo({
 
   const aplicar = useCallback(async () => {
     if (!proposta) return;
+    setSegundos(0);
     setAplicando(true);
     setErro(null);
 
@@ -157,7 +174,7 @@ export function PropostaCodigo({
             disabled={gerando}
             className="shrink-0 rounded-lg border border-marca px-3.5 py-2 text-[12.5px] font-medium text-marca transition hover:bg-marca hover:text-white disabled:opacity-40"
           >
-            {gerando ? "Preparando…" : "Propor alterações"}
+            {gerando ? `Preparando… ${relogio}` : "Propor alterações"}
           </button>
         </div>
       )}
@@ -274,7 +291,7 @@ export function PropostaCodigo({
                   disabled={aplicando}
                   className="rounded-lg bg-marca px-4 py-2 text-[13px] font-medium text-white transition hover:bg-marca-clara disabled:opacity-40"
                 >
-                  {aplicando ? "Abrindo…" : "Abrir pull request"}
+                  {aplicando ? `Abrindo… ${relogio}` : "Abrir pull request"}
                 </button>
                 <button
                   onClick={() => setProposta(null)}

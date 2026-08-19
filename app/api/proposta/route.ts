@@ -17,6 +17,16 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 800;
 
 /**
+ * Teto de tempo para escrever o código.
+ *
+ * Sem isto, uma chamada que travou no provedor deixava o botão em
+ * "Preparando..." indefinidamente: o sinal de vida mantinha a conexão aberta
+ * para sempre, e quem esperava não tinha como saber se havia falhado. Melhor
+ * desistir com mensagem clara do que esperar sem fim.
+ */
+const TETO_GERACAO_MS = 4 * 60 * 1000;
+
+/**
  * Resposta em fluxo, com sinal de vida.
  *
  * Escrever o código e abrir o pull request levam mais de 100 segundos com
@@ -180,14 +190,35 @@ export async function POST(req: Request) {
     }
 
     return fluxoComPing(async () => {
-      const { text } = await completeChat({
-        provider: agente.provider,
-        apiKey: agente.apiKey,
-        model: agente.model,
-        system: SYSTEM_PROPOSTA,
-        prompt: promptProposta(pergunta, resposta, contexto.slice(0, 200_000)),
-        maxTokens: 16_000,
-      });
+      const limite = new AbortController();
+      const relogio = setTimeout(() => limite.abort(), TETO_GERACAO_MS);
+
+      let text: string;
+      try {
+        ({ text } = await completeChat({
+          provider: agente.provider,
+          apiKey: agente.apiKey,
+          model: agente.model,
+          system: SYSTEM_PROPOSTA,
+          prompt: promptProposta(pergunta, resposta, contexto.slice(0, 200_000)),
+          maxTokens: 16_000,
+          signal: limite.signal,
+        }));
+      } catch (err) {
+        const abortou = limite.signal.aborted;
+        console.error("[proposta] falha ao gerar:", err);
+        return {
+          status: abortou ? 504 : 502,
+          corpo: {
+            error: abortou
+              ? "A geração do código passou de 4 minutos e foi interrompida. " +
+                "Tente com uma pergunta mais específica sobre um arquivo, em vez do repositório inteiro."
+              : "Falha ao preparar a proposta.",
+          },
+        };
+      } finally {
+        clearTimeout(relogio);
+      }
 
       const proposta = lerProposta(text);
       if (!proposta) {
