@@ -60,6 +60,13 @@ export type DuelConfig = {
   busca?: BuscaConfig;
   /** Bloco pronto com os documentos anexados, montado antes da execução. */
   contextoDocumentos?: string;
+  /**
+   * Bloco com as perguntas e respostas anteriores da mesma conversa.
+   *
+   * Separado dos documentos de propósito: histórico é contexto, não evidência.
+   * Ele não deve fazer o julgamento final passar a exigir citação de fonte.
+   */
+  contextoConversa?: string;
   /** Quem julga no fim. "rotate" escolhe um agente diferente do autor mais forte. */
   judge: ProviderId | "rotate";
   maxRounds: number;

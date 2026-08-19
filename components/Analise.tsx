@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Documentos, type Documento } from "@/components/Documentos";
 import { PropostaCodigo } from "@/components/Proposta";
@@ -9,10 +9,12 @@ import { Resposta } from "@/components/Resposta";
 import {
   PROFUNDIDADES,
   type Confianca,
+  type ConversaResumoPublico,
   type Etapa,
   type EventoPublico,
   type FontePublica,
   type Profundidade,
+  type TurnoPublico,
 } from "@/lib/publicTypes";
 
 /**
@@ -22,29 +24,90 @@ import {
  * `lib/search` ou `lib/storage`. Isso é intencional: manter nomes de
  * fornecedores, modelos e estratégias fora do bundle que vai para o navegador.
  *
- * A lista inicial de documentos vem pronta do servidor, o que evita um efeito
- * de carregamento no cliente e um ida-e-volta na primeira renderização.
+ * O formato é de conversa: cada resposta fica na tela e a pergunta seguinte é
+ * respondida em cima dela. O histórico vive no servidor, então recarregar a
+ * página não perde nada.
  */
-export function Analise({ documentosIniciais }: { documentosIniciais: Documento[] }) {
+export function Analise({
+  documentosIniciais,
+  conversasIniciais,
+}: {
+  documentosIniciais: Documento[];
+  conversasIniciais: ConversaResumoPublico[];
+}) {
   const router = useRouter();
   const [pergunta, setPergunta] = useState("");
   const [profundidade, setProfundidade] = useState<Profundidade>("equilibrada");
 
+  /* Conversa */
+  const [conversaId, setConversaId] = useState<string | null>(null);
+  const [turnos, setTurnos] = useState<TurnoPublico[]>([]);
+  const [conversas, setConversas] = useState<ConversaResumoPublico[]>(conversasIniciais);
+  const [listaAberta, setListaAberta] = useState(false);
+
+  /* Análise em curso */
   const [rodando, setRodando] = useState(false);
   const [etapa, setEtapa] = useState<Etapa | null>(null);
+  const [perguntaFeita, setPerguntaFeita] = useState("");
   const [resposta, setResposta] = useState("");
   const [confianca, setConfianca] = useState<Confianca | null>(null);
   const [ressalvas, setRessalvas] = useState<string[]>([]);
   const [fontes, setFontes] = useState<FontePublica[]>([]);
+  const [coberturas, setCoberturas] = useState<Array<{ nome: string; cobertura: number }>>([]);
   const [erro, setErro] = useState<string | null>(null);
-  const [perguntaFeita, setPerguntaFeita] = useState("");
+
+  /* Documentos */
   const [documentos, setDocumentos] = useState<Documento[]>(documentosIniciais);
   const [selecionados, setSelecionados] = useState<Set<string>>(
     () => new Set(documentosIniciais.filter((d) => d.estado === "pronto").map((d) => d.id)),
   );
-  const [coberturas, setCoberturas] = useState<Array<{ nome: string; cobertura: number }>>([]);
 
   const abortRef = useRef<AbortController | null>(null);
+  const fimRef = useRef<HTMLDivElement>(null);
+
+  const carregarConversas = useCallback(async () => {
+    try {
+      const res = await fetch("/api/conversas");
+      if (!res.ok) return;
+      setConversas((await res.json()).conversas ?? []);
+    } catch {
+      /* silencioso: a lista é acessória */
+    }
+  }, []);
+
+  const abrirConversa = useCallback(async (id: string) => {
+    setListaAberta(false);
+    try {
+      const res = await fetch(`/api/conversas?id=${encodeURIComponent(id)}`);
+      if (!res.ok) return;
+      const { conversa } = await res.json();
+      setConversaId(conversa.id);
+      setTurnos(conversa.turnos ?? []);
+      setResposta("");
+      setPerguntaFeita("");
+      setConfianca(null);
+      setRessalvas([]);
+      setFontes([]);
+      setCoberturas([]);
+      setErro(null);
+    } catch {
+      setErro("Não foi possível abrir a conversa.");
+    }
+  }, []);
+
+  const novaConversa = useCallback(() => {
+    setListaAberta(false);
+    setConversaId(null);
+    setTurnos([]);
+    setResposta("");
+    setPerguntaFeita("");
+    setConfianca(null);
+    setRessalvas([]);
+    setFontes([]);
+    setCoberturas([]);
+    setErro(null);
+    setPergunta("");
+  }, []);
 
   const carregarDocumentos = useCallback(async () => {
     try {
@@ -87,6 +150,7 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
     if (!podeEnviar) return;
 
     const texto = pergunta.trim();
+    setPergunta("");
     setPerguntaFeita(texto);
     setRodando(true);
     setEtapa("interpretando");
@@ -100,23 +164,40 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    // Acumulado local: o estado do React chega tarde para montar o turno no fim.
+    let textoFinal = "";
+    let confiancaFinal: Confianca | null = null;
+    let ressalvasFinais: string[] = [];
+    let fontesFinais: FontePublica[] = [];
+    let docsFinais: string[] = [];
+    let idConversa = conversaId;
+
     const aplicar = (evt: EventoPublico) => {
       switch (evt.type) {
         case "etapa":
           setEtapa(evt.etapa);
           break;
         case "fontes":
+          fontesFinais = evt.fontes;
           setFontes(evt.fontes);
           break;
         case "documentos":
+          docsFinais = evt.documentos.map((d) => d.nome);
           setCoberturas(evt.documentos);
           break;
         case "resposta_delta":
+          textoFinal += evt.texto;
           setResposta((t) => t + evt.texto);
           break;
         case "final":
+          confiancaFinal = evt.confianca;
+          ressalvasFinais = evt.ressalvas;
           setConfianca(evt.confianca);
           setRessalvas(evt.ressalvas);
+          break;
+        case "conversa":
+          idConversa = evt.id;
+          setConversaId(evt.id);
           break;
         case "erro":
           setErro(evt.texto);
@@ -135,6 +216,7 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
           query: texto,
           profundidade,
           documentos: [...selecionados],
+          conversa: conversaId,
         }),
       });
 
@@ -178,19 +260,44 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
     } finally {
       setRodando(false);
       setEtapa(null);
+
+      // A resposta concluída passa a fazer parte da conversa na tela. Se nada
+      // chegou, não há turno a registrar — o erro já está visível.
+      if (textoFinal.trim()) {
+        setTurnos((atual) => [
+          ...atual,
+          {
+            pergunta: texto,
+            resposta: textoFinal,
+            confianca: confiancaFinal,
+            ressalvas: ressalvasFinais,
+            fontes: fontesFinais,
+            documentos: docsFinais,
+            criadoEm: new Date().toISOString(),
+          },
+        ]);
+        setResposta("");
+        setPerguntaFeita("");
+        setConfianca(null);
+        setRessalvas([]);
+        setFontes([]);
+        if (idConversa) carregarConversas();
+      }
     }
-  }, [podeEnviar, pergunta, profundidade, router, selecionados]);
+  }, [podeEnviar, pergunta, profundidade, router, selecionados, conversaId, carregarConversas]);
 
-  const copiar = useCallback(() => {
-    navigator.clipboard?.writeText(resposta);
-  }, [resposta]);
+  // Rola para o fim quando um turno novo entra: a resposta nova é o que
+  // interessa, e ela nasce embaixo.
+  useEffect(() => {
+    if (turnos.length) fimRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turnos.length]);
 
-  const mostrandoResposta = resposta.length > 0;
+  const emCurso = resposta.length > 0;
+  const vazio = turnos.length === 0 && !emCurso && !rodando;
 
   // Proposta de código só faz sentido se a análise usou um repositório.
-  const repoUsado = documentos.find(
-    (d) => d.tipo === "repositorio" && selecionados.has(d.id),
-  );
+  const repoUsado = documentos.find((d) => d.tipo === "repositorio" && selecionados.has(d.id));
+  const ultimo = turnos[turnos.length - 1];
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -208,25 +315,74 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
             </div>
           </div>
 
-          <button
-            onClick={async () => {
-              await fetch("/api/login", { method: "DELETE" });
-              router.replace("/login");
-            }}
-            className="text-[12px] text-tinta-clara transition hover:text-tinta"
-          >
-            Sair
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <button
+                onClick={() => setListaAberta((v) => !v)}
+                className="text-[12px] text-tinta-media transition hover:text-tinta"
+              >
+                Histórico {conversas.length > 0 && `(${conversas.length})`}
+              </button>
+
+              {listaAberta && (
+                <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-linha bg-branco shadow-lg">
+                  <div className="max-h-80 overflow-y-auto">
+                    {conversas.length === 0 && (
+                      <p className="px-4 py-4 text-[12.5px] text-tinta-clara">
+                        Nenhuma conversa gravada ainda.
+                      </p>
+                    )}
+                    {conversas.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => abrirConversa(c.id)}
+                        className={`block w-full border-b border-linha px-4 py-3 text-left transition last:border-0 hover:bg-papel ${
+                          c.id === conversaId ? "bg-papel" : ""
+                        }`}
+                      >
+                        <span className="block truncate text-[12.5px] font-medium text-tinta">
+                          {c.titulo}
+                        </span>
+                        <span className="mt-0.5 block text-[10.5px] text-tinta-clara">
+                          {new Date(c.atualizadoEm).toLocaleString("pt-BR")} ·{" "}
+                          {c.turnos === 1 ? "1 pergunta" : `${c.turnos} perguntas`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {(turnos.length > 0 || emCurso) && (
+              <button
+                onClick={novaConversa}
+                disabled={rodando}
+                className="text-[12px] text-tinta-media transition hover:text-tinta disabled:opacity-40"
+              >
+                Nova
+              </button>
+            )}
+
+            <button
+              onClick={async () => {
+                await fetch("/api/login", { method: "DELETE" });
+                router.replace("/login");
+              }}
+              className="text-[12px] text-tinta-clara transition hover:text-tinta"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        {!mostrandoResposta && !rodando && (
+        {vazio && (
           <div className="mb-8 text-center">
             <h1 className="font-serif text-[27px] font-semibold leading-tight tracking-tight text-tinta sm:text-[32px]">
               O que você precisa saber?
             </h1>
-            {/* Texto mais largo que o anterior: max-w-2xl equilibra as linhas. */}
             <p className="mx-auto mt-3 max-w-2xl text-[14.5px] leading-relaxed text-tinta-media">
               Sua pergunta passa por análise cruzada entre as melhores inteligências artificiais do
               mundo, Anthropic, OpenAI e DeepSeek, onde é feita uma revisão criteriosa antes de
@@ -235,16 +391,120 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
           </div>
         )}
 
+        {/* Conversa: perguntas e respostas já concluídas */}
+        {turnos.map((t, i) => (
+          <div key={i} className={i === 0 ? "" : "mt-8"}>
+            <p className="border-l-2 border-linha-forte pl-4 font-serif text-[15px] italic leading-relaxed text-tinta-media">
+              {t.pergunta}
+            </p>
+            <div className="mt-4">
+              <Resposta
+                texto={t.resposta}
+                streaming={false}
+                confianca={t.confianca}
+                ressalvas={t.ressalvas}
+                fontes={t.fontes}
+                onCopiar={() => navigator.clipboard?.writeText(t.resposta)}
+                proposta={
+                  repoUsado && t === ultimo ? (
+                    <PropostaCodigo
+                      documentoId={repoUsado.id}
+                      pergunta={t.pergunta}
+                      resposta={t.resposta}
+                    />
+                  ) : undefined
+                }
+              />
+            </div>
+          </div>
+        ))}
+
+        {/* Análise em curso */}
+        {(rodando || emCurso) && (
+          <div className={turnos.length ? "mt-8" : ""}>
+            {perguntaFeita && (
+              <p className="border-l-2 border-linha-forte pl-4 font-serif text-[15px] italic leading-relaxed text-tinta-media">
+                {perguntaFeita}
+              </p>
+            )}
+
+            {rodando && !emCurso && etapa && (
+              <div className="mt-5">
+                <Progresso etapa={etapa} temFontes={fontes.length > 0} />
+              </div>
+            )}
+
+            {coberturas.some((c) => c.cobertura < 100) && (
+              <div className="mt-4 rounded-lg border border-realce/25 bg-realce/5 px-4 py-3">
+                <p className="text-[12px] leading-relaxed text-tinta-media">
+                  <span className="font-medium">Leitura parcial dos documentos.</span>{" "}
+                  {coberturas
+                    .filter((c) => c.cobertura < 100)
+                    .map((c) => `${c.nome}: ${c.cobertura}% do conteúdo`)
+                    .join(" · ")}
+                  . Foram usados os trechos mais relevantes à sua pergunta.
+                </p>
+              </div>
+            )}
+
+            {emCurso && (
+              <div className="mt-5">
+                <Resposta
+                  texto={resposta}
+                  streaming={rodando}
+                  confianca={confianca}
+                  ressalvas={ressalvas}
+                  fontes={fontes}
+                  onCopiar={() => navigator.clipboard?.writeText(resposta)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {erro && (
+          <p className="mt-6 rounded-lg border border-alerta/25 bg-alerta/5 px-4 py-3 text-[13px] text-alerta">
+            {erro}
+          </p>
+        )}
+
+        <div ref={fimRef} />
+
+        {/* Exportação da conversa inteira */}
+        {conversaId && turnos.length > 0 && !rodando && (
+          <div className="mt-6 flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="text-tinta-clara">Salvar esta conversa:</span>
+            <a
+              href={`/imprimir/${conversaId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md border border-linha px-2.5 py-1 text-tinta-media transition hover:border-marca hover:text-marca"
+            >
+              PDF
+            </a>
+            <a
+              href={`/api/exportar?id=${encodeURIComponent(conversaId)}`}
+              className="rounded-md border border-linha px-2.5 py-1 text-tinta-media transition hover:border-marca hover:text-marca"
+            >
+              Excel
+            </a>
+          </div>
+        )}
+
         {/* Composição da pergunta */}
-        <section className="rounded-xl border border-linha bg-branco p-5 shadow-sm">
+        <section className="mt-6 rounded-xl border border-linha bg-branco p-5 shadow-sm">
           <textarea
             value={pergunta}
             onChange={(e) => setPergunta(e.target.value)}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") analisar();
             }}
-            rows={mostrandoResposta ? 2 : 4}
-            placeholder="Descreva sua pergunta. Quanto mais específica, melhor a resposta."
+            rows={vazio ? 4 : 2}
+            placeholder={
+              turnos.length
+                ? "Pergunte em cima da resposta, ou mude de assunto."
+                : "Descreva sua pergunta. Quanto mais específica, melhor a resposta."
+            }
             className="w-full resize-y bg-transparent text-[15px] leading-relaxed text-tinta outline-none placeholder:text-tinta-clara"
           />
 
@@ -288,7 +548,7 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
                   disabled={!podeEnviar}
                   className="rounded-lg bg-marca px-5 py-2.5 text-[13px] font-medium text-white transition hover:bg-marca-clara disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  Analisar
+                  {turnos.length ? "Perguntar" : "Analisar"}
                 </button>
               )}
             </div>
@@ -302,60 +562,6 @@ export function Analise({ documentosIniciais }: { documentosIniciais: Documento[
           onMudou={carregarDocumentos}
           rodando={rodando}
         />
-
-        {erro && (
-          <p className="mt-4 rounded-lg border border-alerta/25 bg-alerta/5 px-4 py-3 text-[13px] text-alerta">
-            {erro}
-          </p>
-        )}
-
-        {perguntaFeita && (rodando || mostrandoResposta) && (
-          <p className="mt-8 border-l-2 border-linha-forte pl-4 font-serif text-[15px] italic leading-relaxed text-tinta-media">
-            {perguntaFeita}
-          </p>
-        )}
-
-        {/* Progresso, enquanto a resposta ainda não começou a chegar */}
-        {rodando && !mostrandoResposta && etapa && (
-          <div className="mt-5">
-            <Progresso etapa={etapa} temFontes={fontes.length > 0} />
-          </div>
-        )}
-
-        {coberturas.some((c) => c.cobertura < 100) && (
-          <div className="mt-4 rounded-lg border border-realce/25 bg-realce/5 px-4 py-3">
-            <p className="text-[12px] leading-relaxed text-tinta-media">
-              <span className="font-medium">Leitura parcial dos documentos.</span>{" "}
-              {coberturas
-                .filter((c) => c.cobertura < 100)
-                .map((c) => `${c.nome}: ${c.cobertura}% do conteúdo`)
-                .join(" · ")}
-              . Foram usados os trechos mais relevantes à sua pergunta.
-            </p>
-          </div>
-        )}
-
-        {mostrandoResposta && (
-          <div className="mt-5">
-            <Resposta
-              texto={resposta}
-              streaming={rodando}
-              confianca={confianca}
-              ressalvas={ressalvas}
-              fontes={fontes}
-              onCopiar={copiar}
-              proposta={
-                repoUsado && !rodando ? (
-                  <PropostaCodigo
-                    documentoId={repoUsado.id}
-                    pergunta={perguntaFeita}
-                    resposta={resposta}
-                  />
-                ) : undefined
-              }
-            />
-          </div>
-        )}
       </main>
 
       <footer className="border-t border-linha px-6 py-5">

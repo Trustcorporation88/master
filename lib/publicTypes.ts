@@ -68,7 +68,28 @@ export type EventoPublico =
   | { type: "aviso"; texto: string }
   | { type: "resposta_delta"; texto: string }
   | { type: "final"; confianca: Confianca; ressalvas: string[] }
+  // Chega quando a conversa é gravada: é assim que o cliente descobre o id de
+  // uma conversa recém-nascida, para continuar nela na pergunta seguinte.
+  | { type: "conversa"; id: string }
   | { type: "erro"; texto: string };
+
+/** Um par pergunta-resposta já concluído, como a interface o exibe. */
+export type TurnoPublico = {
+  pergunta: string;
+  resposta: string;
+  confianca: Confianca | null;
+  ressalvas: string[];
+  fontes: FontePublica[];
+  documentos: string[];
+  criadoEm: string;
+};
+
+export type ConversaResumoPublico = {
+  id: string;
+  titulo: string;
+  atualizadoEm: string;
+  turnos: number;
+};
 
 export type Confianca = "alta" | "media" | "baixa";
 

@@ -1,4 +1,5 @@
 import { Analise } from "@/components/Analise";
+import { listarConversas } from "@/lib/conversas";
 import { listarDocumentos } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -6,19 +7,20 @@ export const dynamic = "force-dynamic";
 /**
  * Ponto de entrada, no servidor.
  *
- * A lista de documentos é lida aqui e entregue pronta ao componente de
- * interface. Assim o cliente não precisa de um efeito de carregamento, e
- * `lib/storage` — que conhece credenciais de armazenamento — nunca entra no
- * bundle do navegador.
+ * As listas de documentos e de conversas são lidas aqui e entregues prontas ao
+ * componente de interface. Assim o cliente não precisa de efeito de
+ * carregamento, e `lib/storage` — que conhece credenciais de armazenamento —
+ * nunca entra no bundle do navegador.
  */
 export default async function Home() {
   let documentos: Awaited<ReturnType<typeof listarDocumentos>> = [];
+  let conversas: Awaited<ReturnType<typeof listarConversas>> = [];
 
   try {
-    documentos = await listarDocumentos();
+    [documentos, conversas] = await Promise.all([listarDocumentos(), listarConversas()]);
   } catch (err) {
     // Armazenamento indisponível não deve impedir o uso da análise.
-    console.error("[inicio] falha ao listar documentos:", err);
+    console.error("[inicio] falha ao ler o armazenamento:", err);
   }
 
   return (
@@ -34,6 +36,7 @@ export default async function Home() {
         estado: d.estado,
         erro: d.erro,
       }))}
+      conversasIniciais={conversas}
     />
   );
 }

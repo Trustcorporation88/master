@@ -162,7 +162,10 @@ Como isso é garantido no código:
 app/
   page.tsx                 A interface (cliente)
   login/page.tsx           Tela de login
-  api/duel/route.ts        Executa a análise, transmite etapas por SSE
+  imprimir/[id]/page.tsx   Versão da conversa para imprimir ou salvar em PDF
+  api/duel/route.ts        Executa a análise, transmite etapas por SSE, grava o turno
+  api/conversas/route.ts   Lista, abre e remove conversas gravadas
+  api/exportar/route.ts    Exporta a conversa em planilha (.xlsx)
   api/documentos/route.ts  Upload, leitura e remoção de documentos
   api/repos/route.ts       Lista e importa repositórios do GitHub
   api/proposta/route.ts    Gera a proposta de código e abre o pull request
@@ -170,6 +173,7 @@ app/
 middleware.ts              Exige sessão em todas as rotas, exceto o login
 lib/
   publicTypes.ts           Único módulo de domínio visível ao cliente
+  conversas.ts             Conversas gravadas e o bloco de histórico dos prompts
   auth.ts                  Sessão por cookie assinado (HMAC)
   serverConfig.ts          Chaves e modelos vindos do ambiente
   providers.ts             Camada unificada dos fornecedores de IA
@@ -191,9 +195,11 @@ components/
   Resposta.tsx             Resposta, confiança, ressalvas, fontes
   Progresso.tsx            Etapas durante o processamento
   Markdown.tsx             Renderização de markdown e código
+  AutoImprimir.tsx         Abre o diálogo de impressão na página de PDF
 scripts/
   mock-apis.mjs            Emula as 5 APIs externas, para testar sem gastar chave
   e2e.mjs                  Teste de ponta a ponta, incluindo vazamento
+  e2e-conversa.mjs         Teste da conversa: continuidade, histórico e exportação
 ```
 
 ---
@@ -219,6 +225,35 @@ O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vaz
 
 ---
 
+## Conversa, histórico e exportação
+
+Cada pergunta e a resposta correspondente formam um **turno**. Os turnos ficam na
+tela, e a pergunta seguinte é respondida em cima dos anteriores — o histórico
+entra no prompt de todos os fornecedores, junto dos documentos, mas **separado
+deles**: histórico é contexto, não evidência, e não deve fazer o julgamento final
+passar a exigir citação de fonte.
+
+A conversa é gravada **pelo servidor**, não pelo cliente: quem grava é quem
+produziu a resposta, então o que está no histórico é o que realmente foi
+entregue. A gravação acontece mesmo quando a análise é interrompida no meio, para
+que o texto já lido não desapareça ao recarregar.
+
+O formato é um JSON por conversa, dentro do mesmo armazenamento dos documentos —
+sem banco e sem migração. Seis turnos anteriores entram no contexto, com a
+resposta cortada em 3 mil caracteres; além disso o custo cresce sem melhorar a
+resposta.
+
+Duas formas de levar a análise para fora:
+
+- **Excel** (`/api/exportar?id=`) — um turno por linha, com resposta inteira na
+  célula, e uma aba de fontes com link por link. Serve para quem vai continuar
+  trabalhando o conteúdo.
+- **PDF** (`/imprimir/<id>`) — a página é feita para o diálogo de impressão do
+  navegador, que já sabe paginar e embutir fonte. Montar PDF no servidor daria
+  documento pior: as tabelas das análises seriam achatadas.
+
+---
+
 ## Limites conhecidos
 
 - **Custo por pergunta.** Uma análise profunda com três fornecedores pode passar de 20 chamadas de API, e o dossiê de fontes e documentos entra no prompt de cada parecer — os tokens de entrada se multiplicam. Defina limite de gasto nas chaves no painel de cada fornecedor.
@@ -229,6 +264,7 @@ O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vaz
 - **Repositório grande entra parcial.** No máximo 120 arquivos e 400 mil caracteres por importação, priorizando documentação e código-fonte. A estrutura completa sempre entra, então o modelo sabe o que existe mesmo sem ter lido.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
 - **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.
+- **O histórico não é infinito.** A partir do sétimo turno, os mais antigos saem do contexto. Uma conversa muito longa perde o começo — vale abrir conversa nova quando o assunto mudar.
 - **Sem busca, ninguém verifica nada.** Sem chave de busca, a análise compara apenas o que os modelos memorizaram.
 
 ---

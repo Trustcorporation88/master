@@ -1,10 +1,11 @@
+import { acrescentarTurno, blocoConversa, lerConversa } from "@/lib/conversas";
 import { runDuel } from "@/lib/duel/engine";
 import { blocoDocumentos } from "@/lib/duel/prompts";
 import { recortarPorRelevancia } from "@/lib/extract";
 import { agentesDoServidor, buscaDoServidor } from "@/lib/serverConfig";
 import { lerExtracao, lerMeta } from "@/lib/storage";
 import type { DuelConfig, Strategy } from "@/lib/duel/types";
-import type { Etapa, EventoPublico, Profundidade } from "@/lib/publicTypes";
+import type { Confianca, Etapa, EventoPublico, FontePublica, Profundidade } from "@/lib/publicTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +58,11 @@ export async function POST(req: Request) {
       : "equilibrada"
   ) as Profundidade;
 
+  // Conversa em andamento. Ausente = começa uma nova.
+  const conversaId = typeof body.conversa === "string" && body.conversa.trim()
+    ? body.conversa.trim()
+    : null;
+
   const idsDocumentos = Array.isArray(body.documentos)
     ? body.documentos.filter((d): d is string => typeof d === "string").slice(0, 10)
     : [];
@@ -68,6 +74,11 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
+
+  // Histórico da conversa: entra como contexto nos prompts, e é o que permite
+  // perguntar em cima da resposta anterior.
+  const conversa = conversaId ? await lerConversa(conversaId) : null;
+  const contextoConversa = conversa ? blocoConversa(conversa.turnos) : undefined;
 
   // Monta o contexto dos documentos antes de começar: se um arquivo não estiver
   // legível, é melhor avisar agora do que no meio da análise.
@@ -106,6 +117,7 @@ export async function POST(req: Request) {
     strategy: ESTRATEGIA[profundidade],
     agents,
     contextoDocumentos,
+    contextoConversa,
     busca: buscaDoServidor(),
     judge: "rotate",
     maxRounds: profundidade === "profunda" ? 3 : 2,
@@ -134,6 +146,13 @@ export async function POST(req: Request) {
           /* ignora */
         }
       }, 15_000);
+
+      // Acumulado para gravar a conversa no fim. O cliente não é a fonte da
+      // verdade aqui: o servidor grava o que realmente produziu.
+      let respostaTexto = "";
+      let confiancaFinal: Confianca | null = null;
+      let ressalvasFinais: string[] = [];
+      let fontesFinais: FontePublica[] = [];
 
       let etapaAtual: Etapa | null = null;
       const etapa = (e: Etapa) => {
@@ -165,15 +184,13 @@ export async function POST(req: Request) {
 
             case "search_done":
               // Só o essencial: título, link e data. Trechos ficam no servidor.
-              enviar({
-                type: "fontes",
-                fontes: evt.fontes.map((f) => ({
-                  n: f.n,
-                  titulo: f.titulo,
-                  url: f.url,
-                  data: f.data,
-                })),
-              });
+              fontesFinais = evt.fontes.map((f) => ({
+                n: f.n,
+                titulo: f.titulo,
+                url: f.url,
+                data: f.data,
+              }));
+              enviar({ type: "fontes", fontes: fontesFinais });
               break;
 
             case "phase":
@@ -184,11 +201,14 @@ export async function POST(req: Request) {
               break;
 
             case "judge_delta":
+              respostaTexto += evt.text;
               enviar({ type: "resposta_delta", texto: evt.text });
               break;
 
             case "verdict":
               etapa("concluido");
+              confiancaFinal = evt.verdict.confidence;
+              ressalvasFinais = evt.verdict.ressalvas;
               enviar({
                 type: "final",
                 confianca: evt.verdict.confidence,
@@ -212,6 +232,26 @@ export async function POST(req: Request) {
         console.error("[duelo] falha na execução:", err instanceof Error ? err.message : err);
         enviar({ type: "erro", texto: "Houve uma falha ao processar a análise. Tente novamente." });
       } finally {
+        // Grava mesmo que a análise tenha sido interrompida: o que o usuário
+        // já leu na tela não deve desaparecer no recarregar.
+        if (respostaTexto.trim()) {
+          try {
+            const gravada = await acrescentarTurno(conversa?.id ?? conversaId, {
+              pergunta: query,
+              resposta: respostaTexto,
+              confianca: confiancaFinal,
+              ressalvas: ressalvasFinais,
+              fontes: fontesFinais,
+              documentos: docsUsados.map((d) => d.nome),
+              criadoEm: new Date().toISOString(),
+            });
+            enviar({ type: "conversa", id: gravada.id });
+          } catch (err) {
+            // Falhar aqui não invalida a resposta que o usuário já recebeu.
+            console.error("[duelo] não foi possível gravar a conversa:", err);
+          }
+        }
+
         clearInterval(ping);
         try {
           ctrl.close();

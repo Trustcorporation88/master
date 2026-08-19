@@ -277,3 +277,34 @@ body {
 .hljs-deletion {
   color: #ef8b84;
 }
+
+/**
+ * Impressão e PDF.
+ *
+ * O bloco de código na tela é escuro por contraste; no papel isso é uma mancha
+ * de tinta e o texto some em impressora monocromática. Aqui ele volta a ser
+ * claro. O resto do desenho já imprime bem.
+ */
+@media print {
+  .prosa pre,
+  .prosa pre code {
+    background: #f4f4f5 !important;
+    color: #18181b !important;
+  }
+
+  .prosa pre {
+    border: 1px solid #d4d4d8;
+  }
+
+  .prosa a {
+    color: #18181b;
+    text-decoration: underline;
+  }
+
+  /* Evita quebrar uma resposta no meio de um bloco indivisível. */
+  .prosa pre,
+  .prosa table,
+  .prosa blockquote {
+    break-inside: avoid;
+  }
+}

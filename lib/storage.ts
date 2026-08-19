@@ -19,7 +19,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 export const LIMITE_BYTES = 100 * 1024 * 1024; // 100 MB por arquivo
@@ -320,4 +320,70 @@ export async function lerExtracao(id: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Arquivos JSON avulsos                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Gravação de JSON por caminho livre, nos dois drivers.
+ *
+ * As conversas precisam viver no mesmo lugar dos documentos — sobreviver a
+ * deploy, sem exigir banco nem migração. O caminho é do chamador, e o único
+ * cuidado aqui é criar a pasta no driver de disco.
+ */
+export async function gravarJson(caminho: string, valor: unknown): Promise<void> {
+  const conteudo = JSON.stringify(valor, null, 2);
+
+  if (driverAtual() === "disco") {
+    const destino = join(RAIZ_DISCO, caminho);
+    await mkdir(dirname(destino), { recursive: true });
+    await writeFile(destino, conteudo, "utf-8");
+    return;
+  }
+
+  await garantirBucket();
+  const { error } = await cliente()
+    .storage.from(BUCKET)
+    .upload(caminho, new Blob([conteudo], { type: "application/json" }), { upsert: true });
+  if (error) throw new Error(error.message);
+}
+
+export async function lerJson<T>(caminho: string): Promise<T | null> {
+  try {
+    if (driverAtual() === "disco") {
+      return JSON.parse(await readFile(join(RAIZ_DISCO, caminho), "utf-8")) as T;
+    }
+
+    const { data, error } = await cliente().storage.from(BUCKET).download(caminho);
+    if (error || !data) return null;
+    return JSON.parse(await data.text()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Nomes dos arquivos dentro de uma pasta, sem recursão. */
+export async function listarCaminhos(pasta: string): Promise<string[]> {
+  if (driverAtual() === "disco") {
+    try {
+      return await readdir(join(RAIZ_DISCO, pasta));
+    } catch {
+      return [];
+    }
+  }
+
+  await garantirBucket();
+  const { data } = await cliente().storage.from(BUCKET).list(pasta, { limit: 500 });
+  return (data ?? []).map((o) => o.name);
+}
+
+export async function removerCaminho(caminho: string): Promise<void> {
+  if (driverAtual() === "disco") {
+    await rm(join(RAIZ_DISCO, caminho), { force: true });
+    return;
+  }
+
+  await cliente().storage.from(BUCKET).remove([caminho]);
 }

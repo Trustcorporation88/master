@@ -127,8 +127,12 @@ export async function* runDuel(
 
   /* ---------------- Fase 0: levantamento de evidência ---------------- */
 
-  // Documentos do usuário entram como evidência desde a primeira fase.
-  let dossie = config.contextoDocumentos ?? "";
+  // Documentos do usuário entram como evidência desde a primeira fase. O
+  // histórico da conversa entra junto, mas não conta como evidência: quem
+  // pergunta em cima da resposta anterior não passou a citar fonte por isso.
+  let dossie = [config.contextoConversa, config.contextoDocumentos]
+    .filter(Boolean)
+    .join("\n\n---\n\n");
   let temDossie = Boolean(config.contextoDocumentos);
 
   const transcript: string[] = [];
