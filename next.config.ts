@@ -13,15 +13,37 @@ import type { NextConfig } from "next";
  */
 const dev = process.env.NODE_ENV !== "production";
 
+/**
+ * Origem do armazenamento, para a CSP.
+ *
+ * O navegador envia o arquivo DIRETO para o armazenamento por URL assinada, o
+ * que é uma chamada a outra origem. Sem liberá-la aqui, o navegador barra o
+ * envio antes de ele sair da máquina — e o erro que aparece é "falha de rede",
+ * que não diz nada sobre a causa real.
+ *
+ * Prefere-se a origem exata; o curinga só entra quando a variável não está
+ * definida no momento em que a configuração é lida.
+ */
+function origemArmazenamento(): string {
+  const bruto = process.env.SUPABASE_URL?.trim();
+  if (!bruto) return "https://*.supabase.co";
+  try {
+    return new URL(bruto).origin;
+  } catch {
+    return "https://*.supabase.co";
+  }
+}
+
 const csp = [
   "default-src 'self'",
   dev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  // O navegador só fala com a própria origem: as chamadas às APIs de IA
-  // acontecem no servidor, nunca direto do cliente.
-  `connect-src 'self'${dev ? " ws: http://localhost:*" : ""}`,
+  // As chamadas às APIs de IA acontecem no servidor, nunca direto do cliente.
+  // A única exceção é o armazenamento, que recebe o arquivo direto do
+  // navegador para não passar 100 MB pela memória do app.
+  `connect-src 'self' ${origemArmazenamento()}${dev ? " ws: http://localhost:*" : ""}`,
   "form-action 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",

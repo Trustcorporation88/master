@@ -104,7 +104,15 @@ export function Documentos({
               // próprio servidor, que é mais lento mas passa onde o outro não.
               console.warn("envio direto falhou, tentando pelo servidor:", falhaDireta);
               setProgresso(0);
-              await pelaApi();
+              try {
+                await pelaApi();
+              } catch (falhaApi) {
+                // Duas falhas seguidas por caminhos diferentes: dizer as duas
+                // é o que permite descobrir a causa sem abrir o console.
+                const a = falhaDireta instanceof Error ? falhaDireta.message : String(falhaDireta);
+                const b = falhaApi instanceof Error ? falhaApi.message : String(falhaApi);
+                throw new Error(`Envio direto: ${a} Pelo servidor: ${b}`);
+              }
             }
           } else {
             await pelaApi();
