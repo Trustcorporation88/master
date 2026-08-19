@@ -103,6 +103,32 @@ await page.evaluate(async () => {
 });
 ok((await page.evaluate(() => window.__tam)) === 413, "arquivo acima de 100 MB é recusado");
 
+/* ---------------- Arrastar e soltar ---------------- */
+
+/**
+ * Solta o arquivo no cabeçalho — o ponto mais distante da área pontilhada.
+ *
+ * Exigir acerto no retângulo é uma armadilha: quem erra por vinte pixels não vê
+ * nada acontecer. Este teste existe porque foi exatamente isso que aconteceu em
+ * produção depois que o solto fora da área passou a ser bloqueado.
+ */
+await page.evaluate(() => {
+  const dt = new DataTransfer();
+  dt.items.add(new File(["# solto\n\nteste de arrastar."], "solto.md", { type: "text/markdown" }));
+  const alvo = document.querySelector("header") ?? document.body;
+  alvo.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true }));
+  alvo.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true }));
+});
+await page.waitForSelector("text=solto.md", { timeout: 60000 });
+ok(true, "arquivo solto fora da área pontilhada é anexado");
+
+await page.waitForTimeout(2000);
+const duplicados = await page.evaluate(async () => {
+  const d = await (await fetch("/api/documentos")).json();
+  return d.documentos.filter((x) => x.nome === "solto.md").length;
+});
+ok(duplicados === 1, `um solto gera um documento, sem duplicar (${duplicados})`);
+
 /* ---------------- Repositório do GitHub ---------------- */
 
 await page.click("text=Repositórios do GitHub");

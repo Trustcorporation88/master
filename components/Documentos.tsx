@@ -48,21 +48,6 @@ export function Documentos({
   const [arrastando, setArrastando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  /**
-   * Arrastar e soltar fora da área pontilhada faz o navegador abrir o arquivo
-   * na aba, o que descarta a página e parece que "não aconteceu nada" — pior
-   * ainda no meio de uma análise. Segurar o solto na janela inteira evita isso.
-   */
-  useEffect(() => {
-    const bloquear = (e: DragEvent) => e.preventDefault();
-    window.addEventListener("dragover", bloquear);
-    window.addEventListener("drop", bloquear);
-    return () => {
-      window.removeEventListener("dragover", bloquear);
-      window.removeEventListener("drop", bloquear);
-    };
-  }, []);
-
   const enviar = useCallback(
     async (arquivos: FileList | File[]) => {
       setErro(null);
@@ -159,6 +144,53 @@ export function Documentos({
     [onMudou],
   );
 
+  /**
+   * Arrastar para qualquer lugar da janela.
+   *
+   * Exigir acerto no retângulo pontilhado é uma armadilha: quem erra por vinte
+   * pixels não vê nada acontecer. E deixar o navegador cuidar do resto é pior
+   * ainda, porque ele abre o arquivo na aba e descarta a análise em andamento.
+   *
+   * Então a janela inteira recebe: soltar em qualquer ponto envia, e enquanto o
+   * arquivo está sobre a página o painel abre e a área acende, para deixar claro
+   * para onde ele vai.
+   */
+  useEffect(() => {
+    const temArquivo = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+    const sobre = (e: DragEvent) => {
+      if (!temArquivo(e)) return;
+      e.preventDefault();
+      setArrastando(true);
+      setAberto(true);
+    };
+
+    // dragleave dispara ao cruzar fronteira entre elementos filhos, então só
+    // conta quando o ponteiro sai de verdade da janela.
+    const saiu = (e: DragEvent) => {
+      if (e.relatedTarget === null) setArrastando(false);
+    };
+
+    const soltar = (e: DragEvent) => {
+      // Bloqueia sempre: sem isso o navegador abre o arquivo e perde a página.
+      e.preventDefault();
+      setArrastando(false);
+      const arquivos = e.dataTransfer?.files;
+      if (arquivos?.length) enviar(arquivos);
+    };
+
+    window.addEventListener("dragover", sobre);
+    window.addEventListener("dragleave", saiu);
+    window.addEventListener("drop", soltar);
+    return () => {
+      window.removeEventListener("dragover", sobre);
+      window.removeEventListener("dragleave", saiu);
+      window.removeEventListener("drop", soltar);
+    };
+  }, [enviar]);
+
+
   const remover = useCallback(
     async (id: string) => {
       await fetch(`/api/documentos?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -210,17 +242,12 @@ export function Documentos({
 
       {aberto && (
         <div className="border-t border-linha px-5 py-4">
+          {/*
+            Sem ouvintes de arrastar aqui: quem cuida disso é o efeito na janela.
+            Ter os dois faria o mesmo arquivo ser enviado duas vezes quando o
+            solto acertasse justamente este retângulo.
+          */}
           <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setArrastando(true);
-            }}
-            onDragLeave={() => setArrastando(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setArrastando(false);
-              if (e.dataTransfer.files.length) enviar(e.dataTransfer.files);
-            }}
             className={`rounded-lg border border-dashed px-4 py-6 text-center transition ${
               arrastando ? "border-marca bg-marca/5" : "border-linha-forte"
             }`}
