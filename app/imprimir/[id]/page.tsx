@@ -23,7 +23,7 @@ export default async function Imprimir({ params }: { params: Promise<{ id: strin
   const data = new Date(conversa.atualizadoEm).toLocaleString("pt-BR");
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10 print:px-0 print:py-0">
+    <div className="mx-auto max-w-3xl px-8 py-10 print:p-0">
       <AutoImprimir />
 
       <header className="mb-8 border-b border-linha pb-5">
@@ -37,13 +37,16 @@ export default async function Imprimir({ params }: { params: Promise<{ id: strin
       </header>
 
       {conversa.turnos.map((t, i) => (
-        <article key={i} className="mb-10 break-inside-avoid">
-          <h2 className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-tinta-clara">
-            Pergunta {i + 1}
-          </h2>
-          <p className="mb-5 border-l-2 border-linha-forte pl-3 font-serif text-[15px] leading-relaxed">
-            {t.pergunta}
-          </p>
+        <article key={i} className="mb-10">
+          {/* A pergunta e o começo da resposta não devem se separar. */}
+          <div className="break-inside-avoid">
+            <h2 className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-tinta-clara">
+              Pergunta {i + 1}
+            </h2>
+            <p className="mb-5 border-l-2 border-linha-forte pl-3 font-serif text-[15px] leading-relaxed">
+              {t.pergunta}
+            </p>
+          </div>
 
           <Markdown>{t.resposta}</Markdown>
 
@@ -81,7 +84,7 @@ export default async function Imprimir({ params }: { params: Promise<{ id: strin
               <ol className="space-y-1 text-[11.5px] leading-relaxed text-tinta-media">
                 {t.fontes.map((f) => (
                   <li key={f.n}>
-                    [{f.n}] {f.titulo} — <span className="break-all">{f.url}</span>
+                    [{f.n}] {f.titulo} — <span className="fonte-url break-all">{f.url}</span>
                     {f.data ? ` (${f.data})` : ""}
                   </li>
                 ))}

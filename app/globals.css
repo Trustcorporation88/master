@@ -281,11 +281,61 @@ body {
 /**
  * Impressão e PDF.
  *
- * O bloco de código na tela é escuro por contraste; no papel isso é uma mancha
- * de tinta e o texto some em impressora monocromática. Aqui ele volta a ser
- * claro. O resto do desenho já imprime bem.
+ * A página de impressão é o formato em que a análise sai da ferramenta e vira
+ * documento — anexo de e-mail, papel na mesa do contador. Por isso as regras
+ * abaixo tratam o papel como papel, e não como uma tela estreita.
+ *
+ * Duas decisões que custaram uma versão ruim antes de acertar:
+ *
+ * A margem vem do `@page`, não do padding do elemento. Padding não impede o
+ * conteúdo de tocar a borda física quando o usuário imprime com "sem margens",
+ * e foi assim que a primeira versão saiu com texto no extremo da folha.
+ *
+ * Uma resposta inteira NÃO é bloco indivisível. Marcar `break-inside: avoid`
+ * numa resposta de três páginas faz o navegador empurrá-la para a página
+ * seguinte e deixar a anterior em branco. Indivisível é só o que é pequeno por
+ * natureza: tabela curta, bloco de código, citação.
  */
+@page {
+  size: A4;
+  margin: 16mm 15mm 18mm;
+}
+
 @media print {
+  html,
+  body {
+    background: #fff;
+  }
+
+  /* Evita linha órfã no pé e no topo da página. */
+  p,
+  li,
+  blockquote {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Título não fica sozinho no fim da página, separado do que ele anuncia. */
+  h1,
+  h2,
+  h3,
+  .prosa h1,
+  .prosa h2,
+  .prosa h3 {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+
+  /* Tabela longa repete o cabeçalho em cada página. */
+  .prosa thead {
+    display: table-header-group;
+  }
+
+  .prosa tr {
+    break-inside: avoid;
+  }
+
+  /* Bloco de código escuro é mancha de tinta e some em impressora monocromática. */
   .prosa pre,
   .prosa pre code {
     background: #f4f4f5 !important;
@@ -294,6 +344,11 @@ body {
 
   .prosa pre {
     border: 1px solid #d4d4d8;
+    break-inside: avoid;
+  }
+
+  .prosa blockquote {
+    break-inside: avoid;
   }
 
   .prosa a {
@@ -301,10 +356,8 @@ body {
     text-decoration: underline;
   }
 
-  /* Evita quebrar uma resposta no meio de um bloco indivisível. */
-  .prosa pre,
-  .prosa table,
-  .prosa blockquote {
-    break-inside: avoid;
+  /* O endereço da fonte precisa ser conferível no papel, onde não há clique. */
+  .fonte-url {
+    word-break: break-all;
   }
 }

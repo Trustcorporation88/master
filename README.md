@@ -200,6 +200,7 @@ scripts/
   mock-apis.mjs            Emula as 5 APIs externas, para testar sem gastar chave
   e2e.mjs                  Teste de ponta a ponta, incluindo vazamento
   e2e-conversa.mjs         Teste da conversa: continuidade, histórico e exportação
+  pdf-check.mjs            Gera o PDF e mede margem e aproveitamento de cada folha
 ```
 
 ---
@@ -251,6 +252,18 @@ Duas formas de levar a análise para fora:
 - **PDF** (`/imprimir/<id>`) — a página é feita para o diálogo de impressão do
   navegador, que já sabe paginar e embutir fonte. Montar PDF no servidor daria
   documento pior: as tabelas das análises seriam achatadas.
+
+Duas regras do CSS de impressão existem por defeito observado no papel, não por
+estilo. A margem vem do `@page`, não do padding: padding não impede o texto de
+tocar a borda física quando se imprime sem margens. E uma resposta **não** é
+bloco indivisível — marcá-la assim faz o navegador empurrar uma resposta de três
+páginas para a folha seguinte e deixar a anterior em branco. Indivisível é só o
+que é pequeno por natureza: linha de tabela, bloco de código, citação.
+
+`scripts/pdf-check.mjs` gera o PDF pelo motor do navegador e **mede** cada
+folha: quanto da altura foi aproveitada e se a faixa de 8 mm nas laterais ficou
+livre. Foi o que pegou as duas falhas acima, que passaram por revisão visual na
+tela.
 
 ---
 
