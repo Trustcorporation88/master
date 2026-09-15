@@ -87,7 +87,7 @@ GITHUB_REPOS=dono/repo1,dono/repo2   # opcional: restringe a lista
 GITHUB_PUBLICO=true                  # opcional: público sem token
 ```
 
-O token precisa apenas de leitura de conteúdo (*Contents: Read-only*).
+O token precisa de leitura de conteúdo (*Contents: Read*). Cole só o segredo, sem aspas. Token fine-grained limitado a repositórios específicos deve vir com `GITHUB_REPOS=dono/repo1,dono/repo2` — senão a listagem da conta falha mesmo com o token válido. Token vencido deixa de valer inclusive para repositório público; o app tenta a leitura sem ele, mas o certo é renovar a variável no Railway.
 
 ### Armazenamento de documentos (necessário para upload)
 
@@ -284,7 +284,7 @@ tela.
 - **A proposta de código não é testada.** Nenhum dos repositórios inspecionados tinha workflow de validação em pull request — os que têm CI rodam deploy, não teste. Enquanto for assim, a revisão humana é a única barreira.
 - **Repositório grande entra parcial.** No máximo 120 arquivos e 400 mil caracteres por importação, priorizando documentação e código-fonte. A estrutura completa sempre entra, então o modelo sabe o que existe mesmo sem ter lido.
 - **Chamada a provedor precisa de teto de tempo.** A geração do código tem limite de 8 minutos; sem ele, uma chamada travada no provedor deixava o botão em "Preparando..." para sempre, porque o sinal de vida mantinha a conexão aberta indefinidamente. O botão também mostra um cronômetro: lento e travado precisam ser distinguíveis a olho. O número saiu de medição em uso real — reescrever um arquivo de 750 linhas são cerca de 8 mil tokens de saída mais 50 mil de entrada, e um teto de 4 minutos interrompia trabalho que ia terminar.
-- **Requisição longa e calada é cortada pela borda da rede.** Com o domínio atrás de CDN, uma resposta que demora mais de ~100 segundos sem enviar byte nenhum é substituída por uma página de erro em HTML. É por isso que a análise transmite por SSE e a proposta de código também: o fluxo com sinal de vida a cada 10 segundos é o que mantém a conexão de pé. Endpoint novo que possa demorar precisa do mesmo tratamento.
+- **Requisição longa e calada é cortada pela borda da rede.** Com o domínio atrás de CDN, uma resposta que demora mais de ~100 segundos sem enviar byte nenhum é substituída por uma página de erro em HTML. É por isso que a análise transmite por SSE, a proposta de código também, e a importação de repositório: o fluxo com sinal de vida a cada 10 segundos é o que mantém a conexão de pé. Endpoint novo que possa demorar precisa do mesmo tratamento.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
 - **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.
 - **O histórico não é infinito.** A partir do sétimo turno, os mais antigos saem do contexto. Uma conversa muito longa perde o começo — vale abrir conversa nova quando o assunto mudar.

@@ -139,15 +139,29 @@ createServer((req, res) => {
       res.end(JSON.stringify(o));
     };
 
+    const auth = req.headers.authorization ?? "";
+    // Simula PAT vencido/errado: 401 em qualquer rota. Sem Authorization a
+    // leitura pública do repo de teste continua valendo (é o retry do app).
+    if (/Bearer\s+(invalido|expirado|revogado)\b/i.test(auth)) {
+      return json({ message: "Bad credentials" }, 401);
+    }
+
     // Listagem de repositórios da conta
     if (p === "/user/repos") {
+      if (!auth) return json({ message: "Requires authentication" }, 401);
       return json([
         { full_name: "teste/projeto-teste", private: true, default_branch: "main",
           updated_at: "2026-08-01T00:00:00Z", description: "repo de teste" },
       ]);
     }
     if (p === "/repos/teste/projeto-teste") {
-      return json({ default_branch: "main" });
+      return json({
+        full_name: "teste/projeto-teste",
+        private: false,
+        default_branch: "main",
+        updated_at: "2026-08-01T00:00:00Z",
+        description: "repo de teste",
+      });
     }
     if (p === "/repos/teste/projeto-teste/branches") {
       return json([{ name: "main" }]);
