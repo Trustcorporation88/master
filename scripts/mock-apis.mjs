@@ -26,7 +26,8 @@ function textoPara(porta, prompt) {
   const quem = NOMES[porta];
 
   if (/# Consolidação final/.test(prompt)) {
-    const comDossie = /# Dossiê de evidência/.test(prompt);
+    const comDossie =
+      /# Dossiê de evidência/.test(prompt) || /# Páginas lidas agora pelo servidor/.test(prompt);
     const scores = ["anthropic", "openai", "deepseek"]
       .filter((p) => prompt.includes(`id: ${p}`))
       .map(

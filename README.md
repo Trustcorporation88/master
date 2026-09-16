@@ -13,7 +13,8 @@ Por dentro, cada pergunta passa por vários modelos de IA de fornecedores difere
 ```
 pergunta
    ↓
-[0] levantamento de fontes na web        (opcional, se houver chave de busca)
+[0] leitura das URLs da pergunta         (sempre, quando a pergunta cita um endereço)
+    + busca na web                       (opcional, se houver chave de busca)
    ↓
 [1] pareceres independentes              (um por fornecedor configurado, em paralelo)
    ↓
@@ -42,9 +43,11 @@ Modelos treinados de formas diferentes têm **pontos cegos diferentes**. Quando 
 
 ### Fontes
 
-Com chave de busca configurada, o servidor pesquisa **uma vez** e entrega o mesmo dossiê a todos os pareceres. Isso mantém a comparação justa (todos veem a mesma evidência) e permite exigir citação `[n]`, que o usuário confere clicando na fonte.
+URLs coladas na pergunta (incluindo endereços nus como `algo.up.railway.app`) são **abertas pelo servidor** no momento da análise, independentemente de haver chave de busca. O HTML vira texto no dossiê; os três pareceres leem a mesma captura. Sem isso, os modelos concluem — à razão, do ponto de vista deles — que “não fazem HTTP” e recusam avaliar o site.
 
-O risco desse desenho: fonte ruim engana todos de forma correlacionada. Por isso os prompts exigem avaliação da qualidade e da data de cada fonte, não apenas leitura.
+Com chave de busca configurada, o servidor ainda pesquisa **uma vez** e entrega o mesmo dossiê a todos os pareceres. Isso mantém a comparação justa e permite exigir citação `[n]`, que o usuário confere clicando na fonte.
+
+O risco desse desenho: fonte ruim engana todos de forma correlacionada. Por isso os prompts exigem avaliação da qualidade e da data de cada fonte, não apenas leitura. O servidor não executa JavaScript: um aplicativo que só existe no cliente entra no dossiê como casco HTML (título, meta, texto estático).
 
 ---
 
@@ -178,6 +181,7 @@ lib/
   serverConfig.ts          Chaves e modelos vindos do ambiente
   providers.ts             Camada unificada dos fornecedores de IA
   search.ts                Busca web e montagem do dossiê
+  paginas.ts               Leitura das URLs citadas na pergunta (SSRF-safe)
   storage.ts               Supabase Storage, com driver de disco para dev
   extract.ts               Leitura de planilha, PDF, DOCX e texto
   ocr.ts                   Renderização de página e transcrição por visão
@@ -201,6 +205,7 @@ scripts/
   e2e.mjs                  Teste de ponta a ponta, incluindo vazamento
   e2e-conversa.mjs         Teste da conversa: continuidade, histórico e exportação
   pdf-check.mjs            Gera o PDF e mede margem e aproveitamento de cada folha
+  paginas-check.mjs        Extração de URLs, leitura local e bloqueio SSRF
 ```
 
 ---
@@ -223,6 +228,12 @@ E2E_SENHA=teste123 node scripts/e2e.mjs
 ```
 
 O `e2e` verifica o fluxo de login, a análise completa, e faz a varredura de vazamento na tela, no HTML e em todo o JavaScript carregado.
+
+```bash
+node --experimental-strip-types scripts/paginas-check.mjs
+```
+
+O `paginas-check` extrai URLs da pergunta, lê HTML/JSON locais, bloqueia loopback em produção e abre um site público para confirmar o acesso HTTP do servidor.
 
 ---
 
@@ -288,7 +299,8 @@ tela.
 - **Análises longas são lentas.** O modo Profunda leva minutos. Há botão de cancelar, e o progresso mostra a etapa e o tempo decorrido.
 - **O consolidador é um LLM.** Ele erra. O grau de confiança e as ressalvas são instrumentos de leitura crítica, não garantias.
 - **O histórico não é infinito.** A partir do sétimo turno, os mais antigos saem do contexto. Uma conversa muito longa perde o começo — vale abrir conversa nova quando o assunto mudar.
-- **Sem busca, ninguém verifica nada.** Sem chave de busca, a análise compara apenas o que os modelos memorizaram.
+- **Sem busca, a web não é pesquisada.** Sem chave de busca, a análise não monta dossiê de resultados — mas URLs coladas na pergunta ainda são abertas pelo servidor.
+- **Página que só existe no JavaScript.** O servidor lê HTML, não executa o aplicativo no navegador. Um site que devolve um casco vazio será descrito como tal.
 
 ---
 

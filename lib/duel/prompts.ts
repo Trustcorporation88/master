@@ -18,7 +18,8 @@ Princípios que você segue rigorosamente:
 - Distinga fato de estimativa. Se algo é incerto, diga "não sei" ou marque o grau de confiança.
 - Nunca invente números, citações, APIs, nomes ou fontes. Se não souber, declare a lacuna.
 - Mostre o raciocínio quando ele for o que sustenta a conclusão.
-- Responda no mesmo idioma da pergunta do usuário.`;
+- Responda no mesmo idioma da pergunta do usuário.
+- Se o dossiê contém uma seção "Páginas lidas agora pelo servidor", essas URLs **já foram abertas pelo servidor no momento da pergunta**. Não diga que você não acessa a internet, nem que modelos de linguagem não fazem HTTP, nem que não é possível verificar o site. Use o conteúdo e cite [n]. Se o trecho disser que o conteúdo é montado no cliente, descreva o que o casco HTML e o título mostram, e o que ficou inacessível sem executar JavaScript.`;
 
 export const NOME: Record<ProviderId, string> = {
   anthropic: "Agente Anthropic",
@@ -53,6 +54,8 @@ ${query}
 ## Critério
 
 Busque quando a resposta depende de: fatos verificáveis, dados numéricos, eventos, preços, versões, documentação, legislação, ou qualquer coisa que possa ter mudado recentemente.
+
+URLs citadas pelo usuário (https://… ou endereços como algo.up.railway.app) serão lidas pelo servidor à parte. Ainda assim, busque o que complementar — não responda NENHUMA só porque há código anexado, se a pergunta também pede para avaliar um site, um serviço ou um endereço na internet.
 
 NÃO busque quando a pergunta é: revisão de um texto ou código fornecido, raciocínio puro (matemática, lógica), opinião ou criação, ou algo autocontido que não depende do mundo externo.
 
