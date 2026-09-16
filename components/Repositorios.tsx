@@ -54,7 +54,9 @@ async function lerResposta(res: Response): Promise<{ ok: boolean; data: Record<s
   try {
     return { ok: res.ok, data: JSON.parse(texto) as Record<string, unknown> };
   } catch {
-    throw new Error("A leitura do repositório foi interrompida. Tente de novo.");
+    throw new Error(
+      "A conexão foi cortada antes da lista chegar. Informe dono/repositório abaixo e tente de novo.",
+    );
   }
 }
 
@@ -103,6 +105,7 @@ export function Repositorios({
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao consultar o GitHub.");
       setRepos([]);
+      setSomentePublicos(true);
     } finally {
       setCarregando(false);
     }
@@ -256,7 +259,7 @@ export function Repositorios({
                 />
               </div>
 
-              {repos.length === 0 && !somentePublicos && (
+              {repos.length === 0 && !somentePublicos && !erro && (
                 <p className="mt-3 text-[12px] text-tinta-clara">
                   Nenhum repositório disponível para este token.
                 </p>

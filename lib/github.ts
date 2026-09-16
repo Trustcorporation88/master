@@ -96,6 +96,9 @@ const PRIORIDADE: Array<{ teste: RegExp; peso: number }> = [
 const TAMANHO_MAX_ARQUIVO = 120_000; // bytes; acima disso é gerado ou dado
 const MAX_ARQUIVOS = 120;
 const ORCAMENTO_PACOTE = 400_000; // caracteres; o recorte por relevância corta depois
+/** Sem teto o fetch fica calado, a borda devolve HTML e o cliente lê "token". */
+const TETO_GITHUB_MS = 12_000;
+const TETO_LISTAGEM_MS = 20_000;
 
 /**
  * A funcionalidade está disponível?
@@ -113,10 +116,12 @@ export function podeListar(): boolean {
   return Boolean(tokenBruto());
 }
 
-/** Erro de credencial ou de permissão — a UI ainda pode oferecer importação manual. */
+/** Erro de credencial, permissão ou tempo — a UI ainda pode oferecer importação manual. */
 export function ehErroDeToken(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /token do github|não tem permissão|sso da organização/i.test(err.message);
+  return /token do github|não tem permissão|sso da organização|não respondeu a tempo/i.test(
+    err.message,
+  );
 }
 
 /**
@@ -176,11 +181,24 @@ async function api<T>(
   if (token) headers.authorization = `Bearer ${token}`;
   if (opcoes.corpo) headers["content-type"] = "application/json";
 
-  const res = await fetch(`${base}${caminho}`, {
-    method: opcoes.metodo ?? "GET",
-    headers,
-    body: opcoes.corpo ? JSON.stringify(opcoes.corpo) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}${caminho}`, {
+      method: opcoes.metodo ?? "GET",
+      headers,
+      body: opcoes.corpo ? JSON.stringify(opcoes.corpo) : undefined,
+      cache: "no-store",
+      signal: AbortSignal.timeout(TETO_GITHUB_MS),
+    });
+  } catch (err) {
+    const nome = err instanceof Error ? err.name : "";
+    if (nome === "TimeoutError" || nome === "AbortError") {
+      throw new Error(
+        "O GitHub não respondeu a tempo. Informe dono/repositório abaixo e tente de novo.",
+      );
+    }
+    throw new Error("Não foi possível alcançar o GitHub. Tente de novo em alguns instantes.");
+  }
 
   if (!res.ok) {
     const corpo = await res.text().catch(() => "");
@@ -241,6 +259,14 @@ function resumoDe(r: RepoApi): RepoResumo {
  * Contents: Read alcança.
  */
 export async function listarRepos(): Promise<RepoResumo[]> {
+  return comTeto(
+    listarReposInterno(),
+    TETO_LISTAGEM_MS,
+    "O GitHub não respondeu a tempo ao listar os repositórios. Informe dono/nome abaixo, ou defina GITHUB_REPOS no servidor.",
+  );
+}
+
+async function listarReposInterno(): Promise<RepoResumo[]> {
   const explicitos = listaExplicita();
   if (explicitos.length) {
     const out: RepoResumo[] = [];
@@ -263,12 +289,23 @@ export async function listarRepos(): Promise<RepoResumo[]> {
     const lote = await api<RepoApi[]>(
       `/user/repos?per_page=100&page=${p}&sort=updated&affiliation=owner,collaborator,organization_member`,
     );
+    if (!Array.isArray(lote)) {
+      throw new Error("O GitHub não devolveu a lista de repositórios.");
+    }
 
     todos.push(...lote.map(resumoDe));
     if (lote.length < 100) break;
   }
 
   return todos.filter((r) => permitido(r.nomeCompleto));
+}
+
+function comTeto<T>(trabalho: Promise<T>, ms: number, mensagem: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const corte = new Promise<never>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(mensagem)), ms);
+  });
+  return Promise.race([trabalho, corte]).finally(() => clearTimeout(timer));
 }
 
 /** Branch padrão do repositório, para pré-selecionar sem o usuário adivinhar. */
