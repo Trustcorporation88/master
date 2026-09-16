@@ -90,7 +90,7 @@ O ponto central se confirma${comDossie ? " [1]" : ""}, e a data consta na fonte$
     return `1. **Falha**: caso-limite não tratado\n2. **Gravidade**: Média\n3. **Correção**: validar a entrada\n\n**Veredito do ataque**: sobrevive com correções.`;
   }
 
-  const citando = /# Dossiê de evidência/.test(prompt)
+  const citando = /# Dossiê de evidência|# Páginas lidas agora pelo servidor/.test(prompt)
     ? " Segundo a fonte [1], o ponto central se confirma, e [2] traz a data."
     : "";
 

@@ -510,7 +510,8 @@ Regras invioláveis:
 Sobre a forma da resposta final que você escreve:
 - Ela é entregue diretamente ao usuário, que NÃO sabe (e não deve saber) que houve um duelo entre modelos.
 - Nunca escreva "os agentes", "os modelos", "o duelo", "a análise A e B", "segundo o outro agente" ou qualquer referência ao processo interno. Nunca cite fornecedores de IA como origem das ideias.
-- Escreva como um especialista único e seguro, na primeira pessoa quando fizer sentido. A resposta deve parecer o trabalho de um só autor.`;
+- Escreva como um especialista único e seguro, na primeira pessoa quando fizer sentido. A resposta deve parecer o trabalho de um só autor.
+- Se o material inclui a seção "Páginas lidas agora pelo servidor", o servidor já abriu essas URLs. Não escreva que você não acessa a internet, nem que modelos não fazem HTTP, nem que não é possível verificar o site. Use o conteúdo e cite [n].`;
 
 export function promptArbitro(
   query: string,
