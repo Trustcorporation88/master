@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Documentos, type Documento } from "@/components/Documentos";
+import { repoDoNome } from "@/components/Repositorios";
 import { PropostaCodigo } from "@/components/Proposta";
 import { Progresso } from "@/components/Progresso";
 import { Resposta } from "@/components/Resposta";
@@ -62,6 +63,7 @@ export function Analise({
   const [selecionados, setSelecionados] = useState<Set<string>>(
     () => new Set(documentosIniciais.filter((d) => d.estado === "pronto").map((d) => d.id)),
   );
+  const [repoEscolhido, setRepoEscolhido] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const fimRef = useRef<HTMLDivElement>(null);
@@ -119,11 +121,19 @@ export function Analise({
       const data = await res.json();
       const lista: Documento[] = data.documentos ?? [];
       setDocumentos(lista);
-      // Marca automaticamente o que acabou de ficar pronto: quem enviou um
-      // arquivo quer usá-lo, e obrigar um segundo clique é atrito sem motivo.
+      // Marca automaticamente o que acabou de ficar pronto. Um repositório
+      // novo substitui os outros repositórios: escolher powerball não pode
+      // deixar holmes-watson marcado e ser lido no lugar.
       setSelecionados((atual) => {
         const novo = new Set(atual);
-        for (const d of lista) if (d.estado === "pronto" && !atual.has(d.id)) novo.add(d.id);
+        const recem = lista.filter((d) => d.estado === "pronto" && !atual.has(d.id));
+        for (const d of recem) novo.add(d.id);
+        const novoRepo = recem.find((d) => d.tipo === "repositorio");
+        if (novoRepo) {
+          for (const d of lista) {
+            if (d.tipo === "repositorio" && d.id !== novoRepo.id) novo.delete(d.id);
+          }
+        }
         for (const id of atual) if (!lista.some((d) => d.id === id)) novo.delete(id);
         return novo;
       });
@@ -141,6 +151,27 @@ export function Analise({
     });
   }, []);
 
+  const aoEscolherRepo = useCallback(
+    (nomeCompleto: string) => {
+      setRepoEscolhido(nomeCompleto);
+      if (!nomeCompleto) return;
+      const ja = documentos.find(
+        (d) =>
+          d.tipo === "repositorio" &&
+          d.estado === "pronto" &&
+          repoDoNome(d.nome)?.toLowerCase() === nomeCompleto.toLowerCase(),
+      );
+      if (!ja) return;
+      setSelecionados((atual) => {
+        const novo = new Set(atual);
+        for (const d of documentos) if (d.tipo === "repositorio") novo.delete(d.id);
+        novo.add(ja.id);
+        return novo;
+      });
+    },
+    [documentos],
+  );
+
   const podeEnviar = pergunta.trim().length > 0 && !rodando;
 
   const cancelar = useCallback(() => {
@@ -151,6 +182,22 @@ export function Analise({
 
   const analisar = useCallback(async () => {
     if (!podeEnviar) return;
+
+    const pendente = repoEscolhido.trim();
+    if (pendente) {
+      const emUso = documentos
+        .filter((d) => d.tipo === "repositorio" && selecionados.has(d.id))
+        .map((d) => repoDoNome(d.nome)?.toLowerCase())
+        .filter((n): n is string => Boolean(n));
+      if (!emUso.includes(pendente.toLowerCase())) {
+        setErro(
+          emUso.length
+            ? `Você escolheu ${pendente}, mas a análise ainda lê ${emUso.join(", ")}. Clique em Importar para trocar o repositório.`
+            : `O repositório ${pendente} ainda não foi importado. Clique em Importar antes de analisar.`,
+        );
+        return;
+      }
+    }
 
     const texto = pergunta.trim();
     setPergunta("");
@@ -287,7 +334,7 @@ export function Analise({
         if (idConversa) carregarConversas();
       }
     }
-  }, [podeEnviar, pergunta, profundidade, router, selecionados, conversaId, carregarConversas]);
+  }, [podeEnviar, pergunta, profundidade, router, selecionados, conversaId, carregarConversas, repoEscolhido, documentos]);
 
   // Rola para o fim quando um turno novo entra: a resposta nova é o que
   // interessa, e ela nasce embaixo.
@@ -546,6 +593,18 @@ export function Analise({
             className="w-full resize-y bg-transparent text-[15px] leading-relaxed text-tinta outline-none placeholder:text-tinta-clara"
           />
 
+          {documentos.filter((d) => selecionados.has(d.id) && d.estado === "pronto").length > 0 && (
+            <p className="mt-2 text-[11.5px] leading-relaxed text-tinta-clara">
+              A próxima pergunta lê:{" "}
+              <span className="font-medium text-tinta-media">
+                {documentos
+                  .filter((d) => selecionados.has(d.id) && d.estado === "pronto")
+                  .map((d) => d.nome)
+                  .join(" · ")}
+              </span>
+            </p>
+          )}
+
           <div className="mt-4 flex flex-wrap items-end justify-between gap-4 border-t border-linha pt-4">
             <div>
               <span className="mb-1.5 block text-[10.5px] font-medium uppercase tracking-wider text-tinta-clara">
@@ -598,6 +657,7 @@ export function Analise({
           selecionados={selecionados}
           onAlternar={alternarDocumento}
           onMudou={carregarDocumentos}
+          onEscolheuRepo={aoEscolherRepo}
           rodando={rodando}
         />
       </main>

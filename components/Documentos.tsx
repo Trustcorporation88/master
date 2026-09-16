@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Repositorios } from "./Repositorios";
+import { Repositorios, repoDoNome } from "./Repositorios";
 
 /**
  * Painel de documentos.
@@ -33,12 +33,14 @@ export function Documentos({
   selecionados,
   onAlternar,
   onMudou,
+  onEscolheuRepo,
   rodando,
 }: {
   documentos: Documento[];
   selecionados: Set<string>;
   onAlternar: (id: string) => void;
   onMudou: () => void;
+  onEscolheuRepo: (nomeCompleto: string) => void;
   rodando: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
@@ -200,7 +202,21 @@ export function Documentos({
   );
 
   const prontos = documentos.filter((d) => d.estado === "pronto");
-  const nSelecionados = prontos.filter((d) => selecionados.has(d.id)).length;
+  const emUso = prontos.filter((d) => selecionados.has(d.id));
+  const nSelecionados = emUso.length;
+  const reposEmUso = [
+    ...new Set(
+      emUso
+        .map((d) => (d.tipo === "repositorio" ? repoDoNome(d.nome) : null))
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+  const rotuloUso =
+    emUso.length === 0
+      ? documentos.length > 0
+        ? `(${documentos.length})`
+        : ""
+      : `(${nSelecionados} em uso · ${emUso.map((d) => d.nome).join(", ")})`;
 
   return (
     <section className="mt-3 rounded-xl border border-linha bg-branco shadow-sm">
@@ -210,14 +226,9 @@ export function Documentos({
           className="flex items-center gap-2 text-left text-[13px] font-medium text-tinta-media transition hover:text-tinta"
         >
           <span>📎</span>
-          <span>
+          <span className="min-w-0 truncate">
             Documentos
-            {documentos.length > 0 && (
-              <span className="ml-1.5 text-tinta-clara">
-                ({documentos.length}
-                {nSelecionados > 0 && `, ${nSelecionados} em uso`})
-              </span>
-            )}
+            {rotuloUso && <span className="ml-1.5 font-normal text-tinta-clara">{rotuloUso}</span>}
           </span>
           <span className="text-[11px] text-tinta-clara">{aberto ? "▲" : "▼"}</span>
         </button>
@@ -333,7 +344,12 @@ export function Documentos({
         </div>
       )}
 
-      <Repositorios onImportado={onMudou} rodando={rodando} />
+      <Repositorios
+        onImportado={onMudou}
+        onEscolheu={onEscolheuRepo}
+        reposEmUso={reposEmUso}
+        rodando={rodando}
+      />
     </section>
   );
 }
