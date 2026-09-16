@@ -15,7 +15,13 @@ import {
   type ProviderId,
   type Usage,
 } from "@/lib/providers";
-import { dossieParaPrompt, montarDossie } from "@/lib/search";
+import { dossieParaPrompt, montarDossie, type Dossie, type Fonte } from "@/lib/search";
+import {
+  dossiePaginas,
+  extrairUrls,
+  lerPaginasDaPergunta,
+  mesclarFontes,
+} from "@/lib/paginas";
 import { assessConvergence } from "./convergence";
 import * as P from "./prompts";
 import type {
@@ -145,12 +151,26 @@ export async function* runDuel(
   };
 
   try {
-    if (config.busca?.ativa && config.busca.apiKey) {
+    const urlsNaPergunta = extrairUrls(config.query);
+    const vaiBuscar = Boolean(config.busca?.ativa && config.busca.apiKey);
+
+    // URLs da pergunta são lidas mesmo sem chave de busca. Sem isso, qualquer
+    // pergunta sobre um site vira "não consigo acessar a URL".
+    if (urlsNaPergunta.length || vaiBuscar) {
       yield { type: "phase", phase: "busca", label: "Levantando evidência" };
       yield { type: "search_start" };
+    }
 
+    const paginas = await lerPaginasDaPergunta(config.query, signal);
+
+    let fontesBusca: Fonte[] = [];
+    let consultasBusca: string[] = [];
+    let buscasCobradas = 0;
+    const errosBusca: string[] = [...paginas.erros];
+
+    if (vaiBuscar && config.busca) {
       // Um agente transforma a pergunta em consultas — e pode concluir que
-      // busca não ajuda nesta pergunta.
+      // busca não ajuda nesta pergunta. URLs já lidas não dependem disso.
       const planejador = agents.find((a) => a.provider === pickJudge(config, ids)) ?? agents[0];
 
       try {
@@ -167,47 +187,76 @@ export async function* runDuel(
 
         const consultas = P.parseConsultas(text);
 
-        if (consultas.length === 0) {
+        if (consultas.length === 0 && !urlsNaPergunta.length) {
           yield {
             type: "search_skip",
             motivo: "Esta pergunta não depende de dados externos — o duelo segue sem busca.",
           };
-        } else {
+        } else if (consultas.length > 0) {
           const d = await montarDossie(
             config.busca.provider,
             config.busca.apiKey,
             consultas,
             signal,
           );
-
-          if (d.fontes.length > 0) {
-            // Preserva os documentos já presentes e acrescenta as fontes web.
-            dossie = [dossie, dossieParaPrompt(d)].filter(Boolean).join("\n\n---\n\n");
-            temDossie = true;
-          }
-
-          yield {
-            type: "search_done",
-            consultas: d.consultas,
-            fontes: d.fontes,
-            buscas: d.buscas,
-            erros: d.erros,
-          };
-
-          if (d.fontes.length === 0) {
-            yield {
-              type: "search_skip",
-              motivo: "As buscas não retornaram fontes utilizáveis — o duelo segue sem dossiê.",
-            };
-          }
+          fontesBusca = d.fontes;
+          consultasBusca = d.consultas;
+          buscasCobradas = d.buscas;
+          errosBusca.push(...d.erros);
         }
       } catch (err) {
-        // Falha na busca não aborta o duelo: ele apenas roda sem evidência.
+        // Falha na busca não aborta o duelo: ele apenas roda sem evidência extra.
         yield {
           type: "search_error",
           error: err instanceof Error ? err.message : "falha ao levantar evidência",
         };
       }
+    }
+
+    const fontesFinais = mesclarFontes(paginas.fontes, fontesBusca);
+    const consultasFinais = [...new Set([
+      ...paginas.fontes.map((f) => f.consulta),
+      ...consultasBusca,
+    ])];
+
+    const chave = (u: string) => u.replace(/\/$/, "").toLowerCase();
+    const urlsPagina = new Set(paginas.fontes.map((f) => chave(f.url)));
+    const paginasRenum = {
+      fontes: fontesFinais.filter((f) => urlsPagina.has(chave(f.url))),
+      erros: paginas.erros,
+    };
+    const buscaRenum: Dossie | null = fontesBusca.length
+      ? {
+          consultas: consultasBusca,
+          fontes: fontesFinais.filter((f) => !urlsPagina.has(chave(f.url))),
+          buscas: buscasCobradas,
+          erros: [],
+        }
+      : null;
+
+    const evidencia = [dossiePaginas(paginasRenum), buscaRenum ? dossieParaPrompt(buscaRenum) : ""]
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+    if (evidencia) {
+      dossie = [dossie, evidencia].filter(Boolean).join("\n\n---\n\n");
+      temDossie = true;
+    }
+
+    if (fontesFinais.length || errosBusca.length) {
+      yield {
+        type: "search_done",
+        consultas: consultasFinais,
+        fontes: fontesFinais,
+        buscas: buscasCobradas,
+        erros: errosBusca,
+      };
+    }
+
+    if (vaiBuscar && !fontesFinais.length && !errosBusca.length) {
+      yield {
+        type: "search_skip",
+        motivo: "As buscas não retornaram fontes utilizáveis — o duelo segue sem dossiê.",
+      };
     }
 
     /* ---------------- Fase 1: respostas independentes ---------------- */
