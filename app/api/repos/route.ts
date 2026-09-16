@@ -1,6 +1,5 @@
 import {
   branchPadrao,
-  ehErroDeToken,
   githubConfigurado,
   listarBranches,
   listarRepos,
@@ -42,11 +41,11 @@ function fluxoComPing(
         const { status, corpo } = await trabalho();
         escrever(`data: ${JSON.stringify({ status, corpo })}\n\n`);
       } catch (err) {
-        console.error("[repos] falha inesperada ao importar:", err);
+        console.error("[repos] falha inesperada:", err);
         escrever(
           `data: ${JSON.stringify({
             status: 500,
-            corpo: { error: "Não foi possível importar o repositório." },
+            corpo: { error: "Falha ao consultar o GitHub." },
           })}\n\n`,
         );
       } finally {
@@ -79,51 +78,55 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const repo = url.searchParams.get("repo");
 
-  try {
-    // Com ?repo=owner/nome devolve as branches daquele repositório.
-    if (repo) {
-      const [owner, nome] = repo.split("/");
-      if (!owner || !nome) {
-        return Response.json({ error: "Repositório inválido." }, { status: 400 });
+  // Com ?repo=owner/nome devolve as branches daquele repositório.
+  if (repo) {
+    const [owner, nome] = repo.split("/");
+    if (!owner || !nome) {
+      return Response.json({ error: "Repositório inválido." }, { status: 400 });
+    }
+    return fluxoComPing(async () => {
+      try {
+        // A branch padrão vem junto: sem ela, um repositório digitado à mão
+        // ficaria sem branch selecionada e o botão de importar morto.
+        const [branches, padrao] = await Promise.all([
+          listarBranches(owner, nome),
+          branchPadrao(owner, nome).catch(() => ""),
+        ]);
+        return { status: 200, corpo: { branches, branchPadrao: padrao } };
+      } catch (err) {
+        console.error("[repos] falha ao ler branches:", err);
+        return {
+          status: 502,
+          corpo: {
+            error: err instanceof Error ? err.message : "Falha ao consultar o GitHub.",
+          },
+        };
       }
-      // A branch padrão vem junto: sem ela, um repositório digitado à mão
-      // ficaria sem branch selecionada e o botão de importar morto.
-      const [branches, padrao] = await Promise.all([
-        listarBranches(owner, nome),
-        branchPadrao(owner, nome).catch(() => ""),
-      ]);
-      return Response.json({ branches, branchPadrao: padrao });
-    }
+    });
+  }
 
-    // Sem token não há lista da conta, mas a importação manual continua valendo.
-    if (!podeListar()) {
-      return Response.json({ configurado: true, repos: [], somentePublicos: true });
-    }
+  // Sem token não há lista da conta, mas a importação manual continua valendo.
+  if (!podeListar()) {
+    return Response.json({ configurado: true, repos: [], somentePublicos: true });
+  }
 
+  return fluxoComPing(async () => {
     try {
-      return Response.json({ configurado: true, repos: await listarRepos() });
+      return { status: 200, corpo: { configurado: true, repos: await listarRepos() } };
     } catch (err) {
-      // Token morto ou fine-grained sem Metadata: o painel continua aberto
-      // para importar pelo nome (público, ou privado se o token ainda servir).
-      if (ehErroDeToken(err)) {
-        const morto = /inválido ou expirado/i.test(err instanceof Error ? err.message : "");
-        console.error("[repos] falha ao listar a conta:", err);
-        return Response.json({
+      const morto = /inválido ou expirado/i.test(err instanceof Error ? err.message : "");
+      console.error("[repos] falha ao listar a conta:", err);
+      return {
+        status: 200,
+        corpo: {
           configurado: true,
           repos: [],
           somentePublicos: morto,
-          aviso: err instanceof Error ? err.message : "Falha ao listar repositórios.",
-        });
-      }
-      throw err;
+          aviso: err instanceof Error ? err.message : "Não foi possível listar os repositórios.",
+        },
+      };
     }
-  } catch (err) {
-    console.error("[repos] falha ao listar:", err);
-    return Response.json(
-      { error: err instanceof Error ? err.message : "Falha ao consultar o GitHub." },
-      { status: 502 },
-    );
-  }
+  });
 }
 
 /** Importa um repositório como documento de contexto. */
