@@ -16,6 +16,42 @@
 
 const API = "https://api.github.com";
 
+/**
+ * Token limpo, como o GitHub espera.
+ *
+ * No Railway é comum colar o valor com aspas, quebra de linha ou o prefixo
+ * "Bearer "/"token " junto. Qualquer um desses produz 401 "Bad credentials"
+ * — e um token inválido é pior do que token nenhum: o GitHub recusa até
+ * repositório público, que sem Authorization seria lido normalmente.
+ */
+function tokenBruto(): string | undefined {
+  let t = process.env.GITHUB_TOKEN?.trim();
+  if (!t) return undefined;
+  if (
+    (t.startsWith('"') && t.endsWith('"') && t.length >= 2) ||
+    (t.startsWith("'") && t.endsWith("'") && t.length >= 2)
+  ) {
+    t = t.slice(1, -1).trim();
+  }
+  t = t.replace(/^(Bearer|token)\s+/i, "").replace(/\s+/g, "");
+  return t || undefined;
+}
+
+/** Token efetivo: some depois de um 401, para não repetir credencial ruim. */
+let tokenRejeitado = false;
+
+function tokenGithub(): string | undefined {
+  if (tokenRejeitado) return undefined;
+  return tokenBruto();
+}
+
+function listaExplicita(): string[] {
+  return (process.env.GITHUB_REPOS?.trim() ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.includes("/"));
+}
+
 /** Pastas que nunca entram: geradas, instaladas ou irrelevantes. */
 const PASTAS_IGNORADAS = new Set([
   "node_modules", ".git", ".next", "dist", "build", "out", "target", "vendor",
@@ -69,12 +105,18 @@ const ORCAMENTO_PACOTE = 400_000; // caracteres; o recorte por relevância corta
  * GITHUB_PUBLICO, útil para quem só analisa código aberto.
  */
 export function githubConfigurado(): boolean {
-  return Boolean(process.env.GITHUB_TOKEN?.trim()) || process.env.GITHUB_PUBLICO === "true";
+  return Boolean(tokenBruto()) || process.env.GITHUB_PUBLICO === "true";
 }
 
 /** Só com token dá para listar os repositórios da conta. */
 export function podeListar(): boolean {
-  return Boolean(process.env.GITHUB_TOKEN?.trim());
+  return Boolean(tokenBruto());
+}
+
+/** Erro de credencial ou de permissão — a UI ainda pode oferecer importação manual. */
+export function ehErroDeToken(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /token do github|não tem permissão|sso da organização/i.test(err.message);
 }
 
 /**
@@ -85,21 +127,45 @@ export function podeListar(): boolean {
  * que estiver acessível aqui.
  */
 function permitido(nomeCompleto: string): boolean {
-  const lista = process.env.GITHUB_REPOS?.trim();
-  if (!lista) return true;
-  return lista
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-    .includes(nomeCompleto.toLowerCase());
+  const lista = listaExplicita();
+  if (!lista.length) return true;
+  return lista.map((s) => s.toLowerCase()).includes(nomeCompleto.toLowerCase());
+}
+
+function erroGithub(status: number, corpo: string): Error {
+  let msg = "";
+  try {
+    msg = String((JSON.parse(corpo) as { message?: string }).message ?? "");
+  } catch {
+    msg = corpo.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+  }
+
+  if (status === 401) return new Error("Token do GitHub inválido ou expirado.");
+  if (status === 403 && /rate limit|secondary rate/i.test(corpo)) {
+    return new Error("Limite de requisições do GitHub atingido. Tente em alguns minutos.");
+  }
+  if (status === 403 && /saml/i.test(corpo)) {
+    return new Error("O token precisa ser autorizado no SSO da organização GitHub.");
+  }
+  if (status === 403 && /not accessible by personal access token/i.test(msg)) {
+    return new Error(
+      "O token não tem permissão para esta operação. Para ler o repositório, conceda Contents: Read. Para listar a conta, defina GITHUB_REPOS (dono/nome) ou conceda Metadata.",
+    );
+  }
+  if (status === 403) return new Error("O token não tem permissão para este repositório.");
+  if (status === 404) return new Error("Repositório, branch ou arquivo não encontrado.");
+  if (status === 422) {
+    return new Error("O GitHub recusou a operação (branch já existe, ou nada mudou).");
+  }
+  return new Error(msg ? `GitHub: ${msg}` : `GitHub respondeu ${status}.`);
 }
 
 async function api<T>(
   caminho: string,
   opcoes: { metodo?: string; corpo?: unknown } = {},
 ): Promise<T> {
-  const token = process.env.GITHUB_TOKEN?.trim();
-  const base = process.env.GITHUB_BASE_URL?.trim() || API;
+  const token = tokenGithub();
+  const base = (process.env.GITHUB_BASE_URL?.trim() || API).replace(/\/+$/, "");
 
   // Sem token ainda dá para ler repositório público; listar os do usuário, não.
   const headers: Record<string, string> = {
@@ -118,20 +184,24 @@ async function api<T>(
 
   if (!res.ok) {
     const corpo = await res.text().catch(() => "");
-    // Mensagens de produto: o detalhe técnico fica no log.
-    if (res.status === 401) throw new Error("Token do GitHub inválido ou expirado.");
-    if (res.status === 403 && corpo.includes("rate limit")) {
-      throw new Error("Limite de requisições do GitHub atingido. Tente em alguns minutos.");
+    // Token inválido recusa até o que é público. Para leitura, tenta de novo
+    // sem Authorization — e esquece o token pelo resto do processo.
+    const leitura = (opcoes.metodo ?? "GET") === "GET" && !opcoes.corpo;
+    if (res.status === 401 && token && leitura) {
+      tokenRejeitado = true;
+      console.error("[github] token recusado (401); seguindo sem autenticação para leitura pública");
+      return api<T>(caminho, opcoes);
     }
-    if (res.status === 403) throw new Error("O token não tem permissão para este repositório.");
-    if (res.status === 404) throw new Error("Repositório, branch ou arquivo não encontrado.");
-    if (res.status === 422) {
-      throw new Error("O GitHub recusou a operação (branch já existe, ou nada mudou).");
-    }
-    throw new Error(`GitHub respondeu ${res.status}.`);
+    throw erroGithub(res.status, corpo);
   }
 
-  return res.json() as Promise<T>;
+  const texto = await res.text();
+  if (!texto) return {} as T;
+  try {
+    return JSON.parse(texto) as T;
+  } catch {
+    throw new Error("O GitHub devolveu uma resposta que não pôde ser lida.");
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -146,31 +216,55 @@ export type RepoResumo = {
   descricao?: string;
 };
 
+type RepoApi = {
+  full_name: string;
+  private: boolean;
+  default_branch: string;
+  updated_at: string;
+  description: string | null;
+};
+
+function resumoDe(r: RepoApi): RepoResumo {
+  return {
+    nomeCompleto: r.full_name,
+    privado: r.private,
+    branchPadrao: r.default_branch,
+    atualizadoEm: r.updated_at,
+    descricao: r.description ?? undefined,
+  };
+}
+
+/**
+ * Token fine-grained limitado a repositórios escolhidos costuma falhar em
+ * `/user/repos` (precisa de Metadata na conta inteira). Quando GITHUB_REPOS
+ * está definido, cada um é lido em `/repos/dono/nome`, que é o endpoint que
+ * Contents: Read alcança.
+ */
 export async function listarRepos(): Promise<RepoResumo[]> {
+  const explicitos = listaExplicita();
+  if (explicitos.length) {
+    const out: RepoResumo[] = [];
+    for (const nome of explicitos) {
+      const [owner, repo] = nome.split("/");
+      if (!owner || !repo) continue;
+      try {
+        out.push(resumoDe(await api<RepoApi>(`/repos/${owner}/${repo}`)));
+      } catch (err) {
+        console.error(`[github] não foi possível ler ${nome}:`, err instanceof Error ? err.message : err);
+      }
+    }
+    return out;
+  }
+
   const paginas = 3; // até 300 repositórios, ordenados por atividade recente
   const todos: RepoResumo[] = [];
 
   for (let p = 1; p <= paginas; p++) {
-    const lote = await api<
-      Array<{
-        full_name: string;
-        private: boolean;
-        default_branch: string;
-        updated_at: string;
-        description: string | null;
-      }>
-    >(`/user/repos?per_page=100&page=${p}&sort=updated&affiliation=owner,collaborator,organization_member`);
-
-    todos.push(
-      ...lote.map((r) => ({
-        nomeCompleto: r.full_name,
-        privado: r.private,
-        branchPadrao: r.default_branch,
-        atualizadoEm: r.updated_at,
-        descricao: r.description ?? undefined,
-      })),
+    const lote = await api<RepoApi[]>(
+      `/user/repos?per_page=100&page=${p}&sort=updated&affiliation=owner,collaborator,organization_member`,
     );
 
+    todos.push(...lote.map(resumoDe));
     if (lote.length < 100) break;
   }
 
@@ -216,6 +310,39 @@ function peso(caminho: string): number {
   const nome = caminho.split("/").pop() ?? "";
   for (const p of PRIORIDADE) if (p.teste.test(nome)) return p.peso;
   return 5;
+}
+
+/**
+ * Conteúdo de um blob.
+ *
+ * A API Git (`/git/blobs`) é a via rápida. Se o token fine-grained recusar
+ * (Contents às vezes libera `/contents` e não o banco git), cai na API de
+ * contents, que é a mesma permissão documentada no GitHub.
+ */
+async function lerArquivo(
+  owner: string,
+  repo: string,
+  arq: ItemArvore,
+): Promise<string | null> {
+  try {
+    const blob = await api<{ content?: string; encoding?: string }>(
+      `/repos/${owner}/${repo}/git/blobs/${arq.sha}`,
+    );
+    if (blob.encoding === "base64" && blob.content) {
+      return Buffer.from(blob.content, "base64").toString("utf-8");
+    }
+  } catch {
+    /* tenta contents abaixo */
+  }
+
+  const caminho = arq.path.split("/").map(encodeURIComponent).join("/");
+  const info = await api<{ content?: string; encoding?: string }>(
+    `/repos/${owner}/${repo}/contents/${caminho}`,
+  );
+  if (info.encoding === "base64" && info.content) {
+    return Buffer.from(info.content, "base64").toString("utf-8");
+  }
+  return null;
 }
 
 export type PacoteRepo = {
@@ -276,29 +403,31 @@ export async function montarPacoteRepo(
   let usado = partes.join("\n").length;
   let incluidos = 0;
 
-  // Sequencial de propósito: evita rajada contra o limite de requisições.
-  for (const arq of candidatos) {
-    if (usado >= ORCAMENTO_PACOTE) break;
+  // Lotes pequenos: um arquivo por vez deixava a importação calada por minutos
+  // (e a borda da rede cortava com HTML, que o cliente lia como "token").
+  const CONCORRENCIA = 8;
+  for (let i = 0; i < candidatos.length && usado < ORCAMENTO_PACOTE; i += CONCORRENCIA) {
+    const lote = candidatos.slice(i, i + CONCORRENCIA);
+    const lidos = await Promise.all(
+      lote.map(async (arq) => {
+        try {
+          return await lerArquivo(owner, repo, arq);
+        } catch (err) {
+          console.error(`[github] falha ao ler ${arq.path}:`, err instanceof Error ? err.message : err);
+          return null;
+        }
+      }),
+    );
 
-    try {
-      const blob = await api<{ content: string; encoding: string }>(
-        `/repos/${owner}/${repo}/git/blobs/${arq.sha}`,
-      );
-      if (blob.encoding !== "base64") continue;
-
-      const conteudo = Buffer.from(blob.content, "base64").toString("utf-8");
-
-      // Heurística de binário que escapou pela extensão.
-      if (conteudo.includes(" ")) continue;
-
-      const bloco = `### ${arq.path}\n\n\`\`\`\n${conteudo}\n\`\`\`\n`;
+    for (let j = 0; j < lidos.length; j++) {
+      const conteudo = lidos[j];
+      if (conteudo == null) continue;
+      if (conteudo.includes("\0")) continue;
+      const bloco = `### ${lote[j].path}\n\n\`\`\`\n${conteudo}\n\`\`\`\n`;
       if (usado + bloco.length > ORCAMENTO_PACOTE) continue;
-
       partes.push(bloco);
       usado += bloco.length;
       incluidos++;
-    } catch (err) {
-      console.error(`[github] falha ao ler ${arq.path}:`, err instanceof Error ? err.message : err);
     }
   }
 

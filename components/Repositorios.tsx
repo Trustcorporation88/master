@@ -17,6 +17,47 @@ export type RepoResumo = {
   descricao?: string;
 };
 
+/** Lê JSON, ou o último quadro de um SSE, sem explodir em HTML da borda. */
+async function lerResposta(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  const tipo = res.headers.get("content-type") ?? "";
+
+  if (tipo.includes("text/event-stream") && res.body) {
+    const leitor = res.body.getReader();
+    const decodificador = new TextDecoder();
+    let buffer = "";
+    let ultimo: { status: number; corpo: Record<string, unknown> } | null = null;
+
+    while (true) {
+      const { done, value } = await leitor.read();
+      if (done) break;
+      buffer += decodificador.decode(value, { stream: true });
+
+      let corte: number;
+      while ((corte = buffer.indexOf("\n\n")) !== -1) {
+        const quadro = buffer.slice(0, corte);
+        buffer = buffer.slice(corte + 2);
+        const linha = quadro.split("\n").find((l) => l.startsWith("data:"));
+        if (!linha) continue;
+        try {
+          ultimo = JSON.parse(linha.slice(5).trim());
+        } catch {
+          /* quadro parcial */
+        }
+      }
+    }
+
+    if (!ultimo) throw new Error("A conexão terminou antes do resultado.");
+    return { ok: ultimo.status < 400, data: ultimo.corpo ?? {} };
+  }
+
+  const texto = await res.text();
+  try {
+    return { ok: res.ok, data: JSON.parse(texto) as Record<string, unknown> };
+  } catch {
+    throw new Error("A leitura do repositório foi interrompida. Tente de novo.");
+  }
+}
+
 export function Repositorios({
   onImportado,
   rodando,
@@ -47,17 +88,18 @@ export function Repositorios({
     setErro(null);
     try {
       const res = await fetch("/api/repos");
-      const data = await res.json();
+      const { ok, data } = await lerResposta(res);
 
       if (data.configurado === false) {
         setIndisponivel(true);
         setRepos([]);
         return;
       }
-      if (!res.ok) throw new Error(data.error ?? "Falha ao listar repositórios.");
+      if (!ok) throw new Error(String(data.error ?? "Falha ao listar repositórios."));
 
       setSomentePublicos(Boolean(data.somentePublicos));
-      setRepos(data.repos ?? []);
+      setRepos((data.repos as RepoResumo[]) ?? []);
+      if (typeof data.aviso === "string" && data.aviso) setErro(data.aviso);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao consultar o GitHub.");
       setRepos([]);
@@ -80,14 +122,15 @@ export function Repositorios({
 
       try {
         const res = await fetch(`/api/repos?repo=${encodeURIComponent(nomeCompleto)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Repositório não encontrado.");
+        const { ok, data } = await lerResposta(res);
+        if (!ok) throw new Error(String(data.error ?? "Repositório não encontrado."));
 
-        if (Array.isArray(data.branches)) setBranches(data.branches);
+        const lista = Array.isArray(data.branches) ? (data.branches as string[]) : [];
+        if (lista.length) setBranches(lista);
 
         // Repositório digitado à mão não está na lista, então a branch padrão
         // precisa vir do próprio GitHub — senão nada fica selecionado.
-        if (!padrao) setBranch(data.branchPadrao || data.branches?.[0] || "");
+        if (!padrao) setBranch(String(data.branchPadrao || lista[0] || ""));
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Não foi possível ler o repositório.");
       }
@@ -108,10 +151,11 @@ export function Repositorios({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo, branch }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Não foi possível importar.");
+      const { ok, data } = await lerResposta(res);
+      if (!ok) throw new Error(String(data.error ?? "Não foi possível importar."));
 
-      setFeito(data.documento?.nome ?? repo);
+      const doc = data.documento as { nome?: string } | undefined;
+      setFeito(doc?.nome ?? repo);
       onImportado();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha na importação.");
