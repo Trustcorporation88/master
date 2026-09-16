@@ -17,6 +17,14 @@ export type RepoResumo = {
   descricao?: string;
 };
 
+/** `Trustcorporation88/powerball@abc1234` → `Trustcorporation88/powerball`. */
+export function repoDoNome(nome: string): string | null {
+  const at = nome.lastIndexOf("@");
+  if (at < 3) return null;
+  const base = nome.slice(0, at);
+  return base.includes("/") ? base : null;
+}
+
 /** Lê JSON, ou o último quadro de um SSE, sem explodir em HTML da borda. */
 async function lerResposta(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> }> {
   const tipo = res.headers.get("content-type") ?? "";
@@ -60,9 +68,14 @@ async function lerResposta(res: Response): Promise<{ ok: boolean; data: Record<s
 
 export function Repositorios({
   onImportado,
+  onEscolheu,
+  reposEmUso,
   rodando,
 }: {
   onImportado: () => void;
+  onEscolheu: (nomeCompleto: string) => void;
+  /** Repositórios que de fato entram na próxima pergunta (`dono/nome`). */
+  reposEmUso: string[];
   rodando: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
@@ -111,6 +124,7 @@ export function Repositorios({
   const escolherRepo = useCallback(
     async (nomeCompleto: string) => {
       setRepo(nomeCompleto);
+      onEscolheu(nomeCompleto);
       setBranch("");
       setBranches([]);
       setErro(null);
@@ -135,7 +149,7 @@ export function Repositorios({
         setErro(e instanceof Error ? e.message : "Não foi possível ler o repositório.");
       }
     },
-    [repos],
+    [repos, onEscolheu],
   );
 
   const importar = useCallback(async () => {
@@ -163,6 +177,10 @@ export function Repositorios({
       setImportando(false);
     }
   }, [repo, branch, importando, onImportado]);
+
+  const emUsoDeste =
+    Boolean(repo) && reposEmUso.some((r) => r.toLowerCase() === repo.toLowerCase());
+  const precisaImportar = Boolean(repo) && !emUsoDeste;
 
   return (
     <div className="border-t border-linha">
@@ -235,9 +253,11 @@ export function Repositorios({
                 <button
                   onClick={importar}
                   disabled={!repo || !branch || rodando || importando}
-                  className="shrink-0 rounded-lg bg-marca px-4 py-2 text-[13px] font-medium text-white transition hover:bg-marca-clara disabled:cursor-not-allowed disabled:opacity-30"
+                  className={`shrink-0 rounded-lg px-4 py-2 text-[13px] font-medium text-white transition hover:bg-marca-clara disabled:cursor-not-allowed disabled:opacity-30 ${
+                    precisaImportar ? "bg-marca ring-2 ring-marca/40 ring-offset-2" : "bg-marca"
+                  }`}
                 >
-                  {importando ? "Importando…" : "Importar"}
+                  {importando ? "Importando…" : precisaImportar ? "Importar para analisar" : "Importar"}
                 </button>
               </div>
 
@@ -255,6 +275,23 @@ export function Repositorios({
                   className="flex-1 rounded-lg border border-linha-forte bg-papel px-3 py-1.5 font-mono text-[12.5px] outline-none focus:border-marca"
                 />
               </div>
+
+              {reposEmUso.length > 0 && (
+                <p className="mt-3 text-[12px] leading-relaxed text-tinta-media">
+                  A análise está lendo{" "}
+                  <span className="font-medium text-tinta">{reposEmUso.join(", ")}</span>
+                  {precisaImportar ? "." : " — este é o repositório em uso."}
+                </p>
+              )}
+
+              {precisaImportar && (
+                <p className="mt-3 rounded-lg border border-alerta/25 bg-alerta/5 px-3 py-2 text-[12.5px] leading-relaxed text-alerta">
+                  Escolher na lista não troca o contexto. A pergunta ainda usa{" "}
+                  {reposEmUso.length ? reposEmUso.join(", ") : "nenhum repositório importado"}. Clique
+                  em <strong>Importar para analisar</strong> para ler{" "}
+                  <span className="font-mono">{repo}</span>.
+                </p>
+              )}
 
               {repos.length === 0 && !somentePublicos && (
                 <p className="mt-3 text-[12px] text-tinta-clara">
